@@ -1,50 +1,111 @@
-# Welcome to your Expo app 👋
+# MyApp - React Native Auth App
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+A modern React Native application with authentication screens and a backend API server.
 
-## Get started
+## Project Structure
 
-1. Install dependencies
-
-   ```bash
-   npm install
-   ```
-
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```
+myApp/          # React Native Expo app
+├── src/
+│   ├── screens/Auth/
+│   │   ├── LoginScreen.js
+│   │   └── SignupScreen.js
+│   └── navigation/AppNavigator.tsx
+└── server/         # Node.js Express API server
+    ├── src/db/
+    │   ├── schema.ts
+    │   └── index.ts
+    ├── drizzle.config.ts
+    └── server.js
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+## Features
 
-## Learn more
+-   **Login Screen**: Email/password authentication
+-   **Signup Screen**: User registration
+-   **Google OAuth**: Social login/signup
+-   **Modern UI**: Clean, premium design with animations
+-   **Backend API**: RESTful authentication endpoints
+-   **PostgreSQL**: Database with Neon hosting
 
-To learn more about developing your project with Expo, look at the following resources:
+## Setup
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+### React Native App
 
-## Join the community
+1. Install dependencies:
 
-Join our community of developers creating universal apps.
+    ```bash
+    npm install
+    ```
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+2. Configure Google OAuth:
+
+    - Go to Google Cloud Console
+    - Create OAuth 2.0 credentials for mobile
+    - Update `YOUR_GOOGLE_CLIENT_ID` in LoginScreen.js and SignupScreen.js
+
+3. Start the app:
+    ```bash
+    npm start
+    ```
+
+### Backend Server
+
+1. Set up Neon PostgreSQL:
+
+    - Sign up at https://neon.tech
+    - Create a new project
+    - Copy the connection string to `server/.env`
+
+2. Configure environment:
+
+    - Update `server/.env` with DATABASE_URL, JWT_SECRET, GOOGLE_CLIENT_ID
+
+3. Push database schema:
+    ```bash
+    cd server
+    npm run db:push
+    npm run dev
+    ```
+
+## Database Commands
+
+-   `npm run db:push` - Push schema to database
+-   `npm run db:migrate` - Run migrations
+-   `npm run db:generate` - Generate migration files
+-   `npm run db:studio` - Open Drizzle Studio
+
+## API Endpoints
+
+-   `POST /api/auth/register` - User registration
+-   `POST /api/auth/login` - Email/password login
+-   `POST /api/auth/google` - Google OAuth authentication
+-   `GET /api/auth/me` - Get user profile (protected)
+
+## Technologies Used
+
+### Frontend
+
+-   React Native
+-   Expo
+-   React Navigation
+-   Expo Auth Session (Google OAuth)
+-   Axios (HTTP client)
+-   React Native Reanimated (animations)
+
+### Backend
+
+-   Node.js
+-   Express.js
+-   PostgreSQL (Neon)
+-   Drizzle ORM
+-   JWT (authentication)
+-   bcryptjs (password hashing)
+-   Google Auth Library
+
+## Notes
+
+-   Update the server URL in the app if deploying to production
+-   For production, use environment variables for API URLs
+-   Consider using AsyncStorage or SecureStore for token persistence
+-   Add proper error handling and loading states as needed
