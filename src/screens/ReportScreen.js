@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
     StyleSheet,
     Text,
@@ -13,174 +13,72 @@ import {
     Dimensions,
 } from "react-native";
 import { Ionicons, MaterialIcons } from "@expo/vector-icons";
+import * as reportService from "../services/reportService";
 
 const { width } = Dimensions.get("window");
 
-// --- MOCK DATA (Simulated Database) ---
-const MOCK_ENQUIRIES = [
-    {
-        id: 1,
-        name: "Rahul Sharma",
-        product: "iPhone 15",
-        status: "New",
-        date: "2023-10-25",
-        value: 75000,
-    },
-    {
-        id: 2,
-        name: "Priya Singh",
-        product: "Samsung S24",
-        status: "In Progress",
-        date: "2023-10-25",
-        value: 65000,
-    },
-    {
-        id: 3,
-        name: "Amit Verma",
-        product: "MacBook Air",
-        status: "Converted",
-        date: "2023-10-24",
-        value: 95000,
-    },
-    {
-        id: 4,
-        name: "Sneha Gupta",
-        product: "iPad Pro",
-        status: "Closed",
-        date: "2023-10-20",
-        value: 45000,
-    },
-    {
-        id: 5,
-        name: "Vikram Malhotra",
-        product: "OnePlus 12",
-        status: "New",
-        date: "2023-10-25",
-        value: 55000,
-    },
-    {
-        id: 6,
-        name: "John Doe",
-        product: "iPhone 14",
-        status: "Converted",
-        date: "2023-10-22",
-        value: 60000,
-    },
-];
-
-const MOCK_FOLLOWUPS = [
-    {
-        id: 101,
-        name: "Rahul Sharma",
-        type: "Call",
-        date: "2023-10-25",
-        time: "10:00 AM",
-        status: "Completed",
-        isMissed: false,
-    },
-    {
-        id: 102,
-        name: "Priya Singh",
-        type: "Visit",
-        date: "2023-10-25",
-        time: "11:30 AM",
-        status: "Pending",
-        isMissed: false,
-    },
-    {
-        id: 103,
-        name: "Amit Verma",
-        type: "WhatsApp",
-        date: "2023-10-25",
-        time: "09:00 AM",
-        status: "Pending",
-        isMissed: true,
-    }, // Missed
-    {
-        id: 104,
-        name: "John Doe",
-        type: "Call",
-        date: "2023-10-26",
-        time: "02:00 PM",
-        status: "Pending",
-        isMissed: false,
-    },
-    {
-        id: 105,
-        name: "Sarah Smith",
-        type: "Call",
-        date: "2023-10-24",
-        time: "04:30 PM",
-        status: "Completed",
-        isMissed: false,
-    },
-];
-
 export default function ReportScreen() {
-    const [activeTab, setActiveTab] = useState("enquiry"); // 'enquiry' | 'followup' | 'conversion'
+    // State
+    const [activeTab, setActiveTab] = useState("enquiry");
     const [dateRange, setDateRange] = useState("Today");
-    const [detailFilter, setDetailFilter] = useState("all"); // To filter list when cards are tapped
+    const [detailFilter, setDetailFilter] = useState("all");
     const [showExportModal, setShowExportModal] = useState(false);
+    const [isLoading, setIsLoading] = useState(false);
 
-    // --- LOGIC ENGINE ---
+    // Data State (Stats)
+    const [stats, setStats] = useState({
+        enquiry: { new: 0, inProgress: 0, converted: 0, closed: 0 },
+        followup: { today: 0, upcoming: 0, missed: 0, completed: 0 },
+        conversion: { total: 0, converted: 0, rate: 0 },
+    });
 
-    // 1. Calculate Enquiry Stats
-    const enquiryStats = {
-        new: MOCK_ENQUIRIES.filter((e) => e.status === "New").length,
-        inProgress: MOCK_ENQUIRIES.filter((e) => e.status === "In Progress")
-            .length,
-        converted: MOCK_ENQUIRIES.filter((e) => e.status === "Converted")
-            .length,
-        closed: MOCK_ENQUIRIES.filter((e) => e.status === "Closed").length,
-    };
+    // List Data State
+    const [displayData, setDisplayData] = useState([]);
 
-    // 2. Calculate Follow-up Stats
-    const followUpStats = {
-        today: MOCK_FOLLOWUPS.filter((f) => f.date === "2023-10-25").length, // Mock "Today"
-        upcoming: MOCK_FOLLOWUPS.filter((f) => f.date > "2023-10-25").length, // Mock "Future"
-        missed: MOCK_FOLLOWUPS.filter((f) => f.isMissed).length,
-        completed: MOCK_FOLLOWUPS.filter((f) => f.status === "Completed")
-            .length,
-    };
+    // --- EFFECTS ---
 
-    // 3. Calculate Conversion Stats
-    const totalEnq = MOCK_ENQUIRIES.length;
-    const conversionRate =
-        totalEnq > 0
-            ? Math.round((enquiryStats.converted / totalEnq) * 100)
-            : 0;
+    // 1. Fetch Stats on load or Tab change
+    useEffect(() => {
+        fetchStats();
+    }, [activeTab, dateRange]);
 
-    // 4. Prepare List Data based on Tab + Detail Filter
-    const displayData = useMemo(() => {
-        let data = [];
-
-        if (activeTab === "enquiry") {
-            data = MOCK_ENQUIRIES;
-            if (detailFilter !== "all") {
-                data = data.filter(
-                    (e) =>
-                        e.status.toLowerCase().replace(" ", "") ===
-                        detailFilter,
-                );
-            }
-        } else if (activeTab === "followup") {
-            data = MOCK_FOLLOWUPS;
-            if (detailFilter === "today")
-                data = data.filter((f) => f.date === "2023-10-25");
-            if (detailFilter === "missed")
-                data = data.filter((f) => f.isMissed);
-            if (detailFilter === "completed")
-                data = data.filter((f) => f.status === "Completed");
-            if (detailFilter === "upcoming")
-                data = data.filter((f) => f.date > "2023-10-25");
-        } else if (activeTab === "conversion") {
-            // Conversion tab usually shows converted enquiries list
-            data = MOCK_ENQUIRIES.filter((e) => e.status === "Converted");
-        }
-        return data;
+    // 2. Fetch List Data based on Tab + Detail Filter
+    useEffect(() => {
+        fetchListData(activeTab, detailFilter);
     }, [activeTab, detailFilter]);
 
-    // --- RENDER HELPERS ---
+    // --- HANDLERS ---
+
+    const fetchStats = async () => {
+        setIsLoading(true);
+        try {
+            const data = await reportService.getReportStats();
+            setStats(data);
+            setIsLoading(false);
+        } catch (error) {
+            console.error("Stats Error:", error);
+            // Fallback to mock if server fails
+            setStats({
+                enquiry: { new: 1, inProgress: 1, converted: 1, closed: 1 },
+                followup: { today: 2, upcoming: 1, missed: 1, completed: 1 },
+                conversion: { total: 4, converted: 1, rate: 25 },
+            });
+            setIsLoading(false);
+        }
+    };
+
+    const fetchListData = async (type, filter) => {
+        setIsLoading(true);
+        try {
+            const data = await reportService.getReportList(type, filter);
+            setDisplayData(data);
+            setIsLoading(false);
+        } catch (error) {
+            console.error("List Error:", error);
+            Alert.alert("Error", "Could not load list data");
+            setIsLoading(false);
+        }
+    };
 
     const StatCard = ({ title, count, color, filterKey, icon }) => (
         <TouchableOpacity
@@ -304,7 +202,10 @@ export default function ReportScreen() {
 
             <ScrollView
                 style={styles.scrollView}
-                showsVerticalScrollIndicator={false}>
+                showsVerticalScrollIndicator={false}
+                refreshControl={
+                    <FlatList refreshing={isLoading} onRefresh={fetchStats} />
+                }>
                 {/* SECTION 1: REPORT TYPE SELECTOR */}
                 <View style={styles.tabsContainer}>
                     {[
@@ -392,28 +293,28 @@ export default function ReportScreen() {
                         <>
                             <StatCard
                                 title="New Enquiries"
-                                count={enquiryStats.new}
+                                count={stats.enquiry.new}
                                 color="#f59e0b"
                                 filterKey="new"
                                 icon="add-circle"
                             />
                             <StatCard
                                 title="In Progress"
-                                count={enquiryStats.inProgress}
+                                count={stats.enquiry.inProgress}
                                 color="#3b82f6"
                                 filterKey="inprogress"
                                 icon="time"
                             />
                             <StatCard
                                 title="Converted"
-                                count={enquiryStats.converted}
+                                count={stats.enquiry.converted}
                                 color="#10b981"
                                 filterKey="converted"
                                 icon="checkmark-circle"
                             />
                             <StatCard
                                 title="Closed"
-                                count={enquiryStats.closed}
+                                count={stats.enquiry.closed}
                                 color="#64748b"
                                 filterKey="closed"
                                 icon="close-circle"
@@ -426,28 +327,28 @@ export default function ReportScreen() {
                         <>
                             <StatCard
                                 title="Today's Tasks"
-                                count={followUpStats.today}
+                                count={stats.followup.today}
                                 color="#2563eb"
                                 filterKey="today"
                                 icon="calendar"
                             />
                             <StatCard
                                 title="Upcoming"
-                                count={followUpStats.upcoming}
+                                count={stats.followup.upcoming}
                                 color="#8b5cf6"
                                 filterKey="upcoming"
                                 icon="arrow-forward"
                             />
                             <StatCard
                                 title="Missed"
-                                count={followUpStats.missed}
+                                count={stats.followup.missed}
                                 color="#ef4444"
                                 filterKey="missed"
                                 icon="warning"
                             />
                             <StatCard
                                 title="Completed"
-                                count={followUpStats.completed}
+                                count={stats.followup.completed}
                                 color="#10b981"
                                 filterKey="completed"
                                 icon="checkmark-done"
@@ -460,14 +361,14 @@ export default function ReportScreen() {
                         <>
                             <StatCard
                                 title="Total Enquiries"
-                                count={totalEnq}
+                                count={stats.conversion.total}
                                 color="#64748b"
                                 filterKey="all"
                                 icon="pie-chart"
                             />
                             <StatCard
                                 title="Converted Deals"
-                                count={enquiryStats.converted}
+                                count={stats.conversion.converted}
                                 color="#10b981"
                                 filterKey="all"
                                 icon="trophy"
@@ -486,7 +387,7 @@ export default function ReportScreen() {
                                         styles.statCount,
                                         { color: "#10b981", fontSize: 32 },
                                     ]}>
-                                    {conversionRate}%
+                                    {stats.conversion.rate}%
                                 </Text>
                                 <Text style={styles.statSub}>Target: 15%</Text>
                             </View>
@@ -499,11 +400,15 @@ export default function ReportScreen() {
                 <View style={styles.listContainer}>
                     <FlatList
                         data={displayData}
-                        keyExtractor={(item) => item.id.toString()}
+                        keyExtractor={(item, index) =>
+                            item?.id ? item.id.toString() : `item-${index}`
+                        }
                         renderItem={RenderItem}
                         ListEmptyComponent={
                             <Text style={styles.emptyText}>
-                                No records found for this filter.
+                                {isLoading
+                                    ? "Loading data..."
+                                    : "No records found for this filter."}
                             </Text>
                         }
                         scrollEnabled={false} // Parent ScrollView handles scroll

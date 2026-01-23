@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
     StyleSheet,
     Text,
@@ -13,47 +13,224 @@ import {
     KeyboardAvoidingView,
     Platform,
     StatusBar,
+    ActivityIndicator,
 } from "react-native";
 import { Ionicons, MaterialIcons } from "@expo/vector-icons";
+import * as enquiryService from "../services/enquiryService";
 
-// --- MOCK DATA ---
-const initialEnquiries = [
-    {
-        id: 1,
-        enqNo: "ENQ-001",
-        date: "2023-10-25",
-        name: "John Doe",
-        mobile: "9876543210",
-        product: "Smartphone X",
-        value: "25000",
-        status: "New",
-        source: "Website",
-    },
-    {
-        id: 2,
-        enqNo: "ENQ-002",
-        date: "2023-10-24",
-        name: "Jane Smith",
-        mobile: "9123456789",
-        product: "Laptop Pro",
-        value: "55000",
-        status: "In Progress",
-        source: "Referral",
-    },
-];
+// --- CONFIGURATION ---
+// CHANGE THIS URL based on how you are running the app:
+// 1. Real Device: Use your PC's WiFi IP (e.g., http://192.168.1.5:5000)
+// 2. Android Emulator: http://10.0.2.2:5000
+// 3. iOS Simulator: http://localhost:5000
+const API_URL = "http://192.168.1.33:5000/api/enquiries";
+
+// --- SUB-COMPONENTS (Moved outside App for stability) ---
+
+// 1. FormInput (Removed Memo to fix focus issue)
+const FormInput = ({
+    label,
+    value,
+    onChangeText,
+    placeholder,
+    keyboardType = "default",
+    readOnly = false,
+}) => (
+    <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>
+            {label} <Text style={{ color: "red" }}>*</Text>
+        </Text>
+        <TextInput
+            style={[styles.input, readOnly && styles.inputReadOnly]}
+            value={value}
+            onChangeText={onChangeText}
+            placeholder={placeholder}
+            keyboardType={keyboardType}
+            editable={!readOnly}
+            placeholderTextColor="#94a3b8"
+            selectionColor="#2563eb"
+            multiline={false}
+            maxLength={500}
+            // IMPORTANT: ensure unique key if list of inputs,
+            // but since this is a single component, simple usage is fine.
+        />
+    </View>
+);
+
+// 2. AddEnquiryForm (Simplified, no Memo)
+const AddEnquiryForm = ({
+    formData,
+    handleFormFieldChange,
+    onBack,
+    onSave,
+}) => {
+    // Create stable handlers here to avoid prop mismatch issues
+    const updateField = (field) => (text) => handleFormFieldChange(field, text);
+
+    return (
+        <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            style={{ flex: 1 }}>
+            <View style={styles.subHeader}>
+                <TouchableOpacity onPress={onBack}>
+                    <Ionicons name="arrow-back" size={24} color="#fff" />
+                </TouchableOpacity>
+                <Text style={styles.subHeaderTitle}>Add Enquiry</Text>
+                <View style={{ width: 24 }} />
+            </View>
+
+            <ScrollView
+                style={styles.formContainer}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                scrollEnabled={true}>
+                {/* Auto Fields */}
+                <View style={styles.sectionTitleContainer}>
+                    <Text style={styles.sectionTitle}>System Details</Text>
+                </View>
+                <View style={styles.formRow}>
+                    <View style={styles.flex1}>
+                        <FormInput
+                            label="Enquiry No"
+                            value="Auto Generated"
+                            readOnly
+                        />
+                    </View>
+                    <View style={styles.flex1}>
+                        <FormInput
+                            label="Date"
+                            value={formData.date}
+                            readOnly
+                        />
+                    </View>
+                </View>
+                <FormInput label="Enquiry By" value={formData.enqBy} readOnly />
+
+                {/* User Inputs */}
+                <View style={styles.sectionTitleContainer}>
+                    <Text style={styles.sectionTitle}>Customer Details</Text>
+                </View>
+
+                <View style={styles.formRow}>
+                    <View style={styles.flex1}>
+                        <FormInput
+                            label="Enquiry Type"
+                            value={formData.enqType}
+                            onChangeText={updateField("enqType")}
+                            placeholder="Select Type"
+                        />
+                    </View>
+                    <View style={styles.flex1}>
+                        <FormInput
+                            label="Lead Source"
+                            value={formData.source}
+                            onChangeText={updateField("source")}
+                            placeholder="Source"
+                        />
+                    </View>
+                </View>
+
+                <FormInput
+                    label="Customer Name"
+                    value={formData.name}
+                    onChangeText={updateField("name")}
+                    placeholder="Full Name"
+                />
+                <FormInput
+                    label="Mobile No"
+                    value={formData.mobile}
+                    onChangeText={updateField("mobile")}
+                    placeholder="10 Digit Mobile"
+                    keyboardType="numeric"
+                />
+                <FormInput
+                    label="Alt. Mobile"
+                    value={formData.altMobile}
+                    onChangeText={updateField("altMobile")}
+                    placeholder="Alternate Mobile"
+                    keyboardType="numeric"
+                />
+                <FormInput
+                    label="Address"
+                    value={formData.address}
+                    onChangeText={updateField("address")}
+                    placeholder="Full Address"
+                />
+
+                <View style={styles.sectionTitleContainer}>
+                    <Text style={styles.sectionTitle}>Product Details</Text>
+                </View>
+
+                <FormInput
+                    label="Product Name"
+                    value={formData.product}
+                    onChangeText={updateField("product")}
+                    placeholder="Product"
+                />
+                <View style={styles.formRow}>
+                    <View style={styles.flex1}>
+                        <FormInput
+                            label="Variant"
+                            value={formData.variant}
+                            onChangeText={updateField("variant")}
+                            placeholder="Model"
+                        />
+                    </View>
+                    <View style={styles.flex1}>
+                        <FormInput
+                            label="Color"
+                            value={formData.color}
+                            onChangeText={updateField("color")}
+                            placeholder="Color"
+                        />
+                    </View>
+                </View>
+
+                <FormInput
+                    label="Approx. Cost (Lead Value)"
+                    value={formData.cost}
+                    onChangeText={updateField("cost")}
+                    placeholder="0.00"
+                    keyboardType="numeric"
+                />
+                <FormInput
+                    label="Payment Method"
+                    value={formData.paymentMethod}
+                    onChangeText={updateField("paymentMethod")}
+                    placeholder="Cash / Credit"
+                />
+
+                <View style={styles.formButtons}>
+                    <TouchableOpacity
+                        style={styles.btnSecondary}
+                        onPress={onBack}>
+                        <Text style={styles.btnSecondaryText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={styles.btnPrimary}
+                        onPress={onSave}>
+                        <Ionicons name="save-outline" size={20} color="#fff" />
+                        <Text style={styles.btnPrimaryText}>Save Enquiry</Text>
+                    </TouchableOpacity>
+                </View>
+            </ScrollView>
+        </KeyboardAvoidingView>
+    );
+};
 
 // --- MAIN APP COMPONENT ---
 export default function App() {
     const [screen, setScreen] = useState("list"); // 'list' or 'add'
-    const [enquiries, setEnquiries] = useState(initialEnquiries);
+    const [enquiries, setEnquiries] = useState([]);
     const [searchQuery, setSearchQuery] = useState("");
     const [filterStatus, setFilterStatus] = useState("All");
+    const [isLoading, setIsLoading] = useState(true);
 
     // Form State
     const [formData, setFormData] = useState({
         enqNo: "",
         date: "",
-        enqBy: "Admin User", // Simulating logged-in user
+        enqBy: "Admin User",
         enqType: "",
         source: "",
         name: "",
@@ -71,17 +248,38 @@ export default function App() {
     const [showFollowUpModal, setShowFollowUpModal] = useState(false);
 
     // --- EFFECTS ---
+
+    // 1. Fetch data on load, and whenever Search or Filter changes
     useEffect(() => {
+        fetchEnquiries();
         // Set initial date for form
         const today = new Date().toISOString().split("T")[0];
         setFormData((prev) => ({ ...prev, date: today }));
-    }, []);
+    }, [searchQuery, filterStatus]);
 
     // --- HANDLERS ---
 
+    // API: Fetch Enquiries
+    const fetchEnquiries = async () => {
+        try {
+            const data = await enquiryService.getAllEnquiries();
+            setEnquiries(data);
+            setIsLoading(false);
+        } catch (error) {
+            console.error("Error fetching data:", error);
+            Alert.alert("Error", "Could not connect to server");
+            setIsLoading(false);
+        }
+    };
+
+    // Memoized form field update handler
+    const handleFormFieldChange = useCallback((field, value) => {
+        setFormData((prev) => ({ ...prev, [field]: value }));
+    }, []);
+
     const handleResetForm = () => {
         setFormData({
-            enqNo: `ENQ-${String(enquiries.length + 1).padStart(3, "0")}`,
+            enqNo: "", // Server will generate this
             date: new Date().toISOString().split("T")[0],
             enqBy: "Admin User",
             enqType: "",
@@ -103,7 +301,8 @@ export default function App() {
         setScreen("add");
     };
 
-    const handleSaveEnquiry = () => {
+    // API: Save Enquiry
+    const handleSaveEnquiry = async () => {
         // Basic Validation
         if (
             !formData.name ||
@@ -115,20 +314,60 @@ export default function App() {
             return;
         }
 
-        const newEnquiry = {
-            id: Date.now(),
-            enqNo: formData.enqNo,
-            date: formData.date,
-            name: formData.name,
-            mobile: formData.mobile,
-            product: `${formData.product} ${formData.variant || ""}`,
-            value: formData.cost,
-            status: "New",
-            source: formData.source || "Direct",
-        };
+        try {
+            console.log("Saving enquiry with data:", formData);
 
-        setEnquiries([newEnquiry, ...enquiries]);
-        setShowFollowUpModal(true); // Show Popup
+            // Convert cost to number for API consistency
+            const payload = {
+                name: formData.name,
+                mobile: formData.mobile,
+                product: formData.product,
+                cost: parseFloat(formData.cost) || 0,
+            };
+
+            console.log("Sending payload:", payload);
+
+            // Use direct fetch to test (bypass axios/service)
+            const response = await fetch(API_URL, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(payload),
+            });
+
+            console.log("Response status:", response.status);
+            const newEnquiry = await response.json();
+            console.log("Response data:", newEnquiry);
+
+            if (response.ok) {
+                console.log("Enquiry saved successfully:", newEnquiry);
+
+                // Add to new enquiry to top of list locally (Optimistic UI)
+                setEnquiries([newEnquiry, ...enquiries]);
+
+                // Reset form
+                handleResetForm();
+
+                // Show success and follow-up popup
+                setShowFollowUpModal(true);
+                Alert.alert("Success", "Enquiry saved successfully!");
+            } else {
+                console.error("Failed to save:", newEnquiry);
+                Alert.alert(
+                    "Error",
+                    newEnquiry.message || "Failed to save enquiry",
+                );
+            }
+        } catch (error) {
+            console.error("Save enquiry error:", error);
+            console.error("Error message:", error.message);
+
+            Alert.alert(
+                "Error",
+                error.message || "Failed to save enquiry. Please try again.",
+            );
+        }
     };
 
     const handleFollowUpResponse = (response) => {
@@ -142,6 +381,7 @@ export default function App() {
         }
     };
 
+    // API: Delete Enquiry
     const handleDelete = (id) => {
         Alert.alert(
             "Confirm Delete",
@@ -151,8 +391,17 @@ export default function App() {
                 {
                     text: "Delete",
                     style: "destructive",
-                    onPress: () =>
-                        setEnquiries(enquiries.filter((e) => e.id !== id)),
+                    onPress: async () => {
+                        try {
+                            const deleteUrl = `${API_URL}/${id}`;
+                            await fetch(deleteUrl, { method: "DELETE" });
+
+                            // Remove from local state
+                            setEnquiries(enquiries.filter((e) => e.id !== id));
+                        } catch (error) {
+                            Alert.alert("Error", "Could not delete item");
+                        }
+                    },
                 },
             ],
         );
@@ -229,7 +478,7 @@ export default function App() {
                 </View>
                 <View style={styles.row}>
                     <Text style={styles.label}>Lead Value:</Text>
-                    <Text style={styles.valuePrice}>₹{item.value}</Text>
+                    <Text style={styles.valuePrice}>₹{item.cost}</Text>
                 </View>
             </View>
 
@@ -253,29 +502,6 @@ export default function App() {
                     />
                 </TouchableOpacity>
             </View>
-        </View>
-    );
-
-    const FormInput = ({
-        label,
-        value,
-        onChangeText,
-        placeholder,
-        keyboardType = "default",
-        readOnly = false,
-    }) => (
-        <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>
-                {label} <span style={{ color: "red" }}>*</span>
-            </Text>
-            <TextInput
-                style={[styles.input, readOnly && styles.inputReadOnly]}
-                value={value}
-                onChangeText={onChangeText}
-                placeholder={placeholder}
-                keyboardType={keyboardType}
-                editable={!readOnly}
-            />
         </View>
     );
 
@@ -331,19 +557,43 @@ export default function App() {
                             />
                         </View>
                         <View style={styles.filterRow}>
-                            <TouchableOpacity style={styles.filterChip}>
-                                <Text style={styles.filterChipText}>
-                                    Date Range ▼
+                            <TouchableOpacity
+                                style={styles.filterChip}
+                                onPress={() => setFilterStatus("All")}>
+                                <Text
+                                    style={[
+                                        styles.filterChipText,
+                                        filterStatus === "All" && {
+                                            color: "#2563eb",
+                                        },
+                                    ]}>
+                                    All Status ▼
                                 </Text>
                             </TouchableOpacity>
-                            <TouchableOpacity style={styles.filterChip}>
-                                <Text style={styles.filterChipText}>
-                                    Status ▼
+                            <TouchableOpacity
+                                style={styles.filterChip}
+                                onPress={() => setFilterStatus("New")}>
+                                <Text
+                                    style={[
+                                        styles.filterChipText,
+                                        filterStatus === "New" && {
+                                            color: "#d97706",
+                                        },
+                                    ]}>
+                                    New ▼
                                 </Text>
                             </TouchableOpacity>
-                            <TouchableOpacity style={styles.filterChip}>
-                                <Text style={styles.filterChipText}>
-                                    Source ▼
+                            <TouchableOpacity
+                                style={styles.filterChip}
+                                onPress={() => setFilterStatus("In Progress")}>
+                                <Text
+                                    style={[
+                                        styles.filterChipText,
+                                        filterStatus === "In Progress" && {
+                                            color: "#2563eb",
+                                        },
+                                    ]}>
+                                    In Progress ▼
                                 </Text>
                             </TouchableOpacity>
                         </View>
@@ -355,9 +605,13 @@ export default function App() {
                         keyExtractor={(item) => item.id.toString()}
                         renderItem={ListItem}
                         contentContainerStyle={styles.listContent}
+                        refreshing={isLoading}
+                        onRefresh={fetchEnquiries}
                         ListEmptyComponent={
                             <Text style={styles.emptyText}>
-                                No enquiries found
+                                {isLoading
+                                    ? "Loading..."
+                                    : "No enquiries found"}
                             </Text>
                         }
                     />
@@ -366,195 +620,12 @@ export default function App() {
 
             {/* --- ADD ENQUIRY SCREEN --- */}
             {screen === "add" && (
-                <KeyboardAvoidingView
-                    behavior={Platform.OS === "ios" ? "padding" : "height"}
-                    style={styles.flex1}>
-                    <View style={styles.subHeader}>
-                        <TouchableOpacity onPress={() => setScreen("list")}>
-                            <Ionicons
-                                name="arrow-back"
-                                size={24}
-                                color="#fff"
-                            />
-                        </TouchableOpacity>
-                        <Text style={styles.subHeaderTitle}>Add Enquiry</Text>
-                        <View style={{ width: 24 }} />
-                    </View>
-
-                    <ScrollView
-                        style={styles.formContainer}
-                        showsVerticalScrollIndicator={false}>
-                        {/* Auto Fields */}
-                        <View style={styles.sectionTitleContainer}>
-                            <Text style={styles.sectionTitle}>
-                                System Details
-                            </Text>
-                        </View>
-                        <View style={styles.formRow}>
-                            <View style={styles.flex1}>
-                                <FormInput
-                                    label="Enquiry No"
-                                    value={formData.enqNo}
-                                    readOnly
-                                />
-                            </View>
-                            <View style={styles.flex1}>
-                                <FormInput
-                                    label="Date"
-                                    value={formData.date}
-                                    readOnly
-                                />
-                            </View>
-                        </View>
-                        <FormInput
-                            label="Enquiry By"
-                            value={formData.enqBy}
-                            readOnly
-                        />
-
-                        {/* User Inputs */}
-                        <View style={styles.sectionTitleContainer}>
-                            <Text style={styles.sectionTitle}>
-                                Customer Details
-                            </Text>
-                        </View>
-
-                        <View style={styles.formRow}>
-                            <View style={styles.flex1}>
-                                <FormInput
-                                    label="Enquiry Type"
-                                    value={formData.enqType}
-                                    onChangeText={(t) =>
-                                        setFormData({ ...formData, enqType: t })
-                                    }
-                                    placeholder="Select Type"
-                                />
-                            </View>
-                            <View style={styles.flex1}>
-                                <FormInput
-                                    label="Lead Source"
-                                    value={formData.source}
-                                    onChangeText={(t) =>
-                                        setFormData({ ...formData, source: t })
-                                    }
-                                    placeholder="Source"
-                                />
-                            </View>
-                        </View>
-
-                        <FormInput
-                            label="Customer Name"
-                            value={formData.name}
-                            onChangeText={(t) =>
-                                setFormData({ ...formData, name: t })
-                            }
-                            placeholder="Full Name"
-                        />
-                        <FormInput
-                            label="Mobile No"
-                            value={formData.mobile}
-                            onChangeText={(t) =>
-                                setFormData({ ...formData, mobile: t })
-                            }
-                            placeholder="10 Digit Mobile"
-                            keyboardType="numeric"
-                        />
-                        <FormInput
-                            label="Alt. Mobile"
-                            value={formData.altMobile}
-                            onChangeText={(t) =>
-                                setFormData({ ...formData, altMobile: t })
-                            }
-                            placeholder="Alternate Mobile"
-                            keyboardType="numeric"
-                        />
-                        <FormInput
-                            label="Address"
-                            value={formData.address}
-                            onChangeText={(t) =>
-                                setFormData({ ...formData, address: t })
-                            }
-                            placeholder="Full Address"
-                        />
-
-                        <View style={styles.sectionTitleContainer}>
-                            <Text style={styles.sectionTitle}>
-                                Product Details
-                            </Text>
-                        </View>
-
-                        <FormInput
-                            label="Product Name"
-                            value={formData.product}
-                            onChangeText={(t) =>
-                                setFormData({ ...formData, product: t })
-                            }
-                            placeholder="Product"
-                        />
-                        <View style={styles.formRow}>
-                            <View style={styles.flex1}>
-                                <FormInput
-                                    label="Variant"
-                                    value={formData.variant}
-                                    onChangeText={(t) =>
-                                        setFormData({ ...formData, variant: t })
-                                    }
-                                    placeholder="Model"
-                                />
-                            </View>
-                            <View style={styles.flex1}>
-                                <FormInput
-                                    label="Color"
-                                    value={formData.color}
-                                    onChangeText={(t) =>
-                                        setFormData({ ...formData, color: t })
-                                    }
-                                    placeholder="Color"
-                                />
-                            </View>
-                        </View>
-
-                        <FormInput
-                            label="Approx. Cost (Lead Value)"
-                            value={formData.cost}
-                            onChangeText={(t) =>
-                                setFormData({ ...formData, cost: t })
-                            }
-                            placeholder="0.00"
-                            keyboardType="numeric"
-                        />
-                        <FormInput
-                            label="Payment Method"
-                            value={formData.paymentMethod}
-                            onChangeText={(t) =>
-                                setFormData({ ...formData, paymentMethod: t })
-                            }
-                            placeholder="Cash / Credit"
-                        />
-
-                        <View style={styles.formButtons}>
-                            <TouchableOpacity
-                                style={styles.btnSecondary}
-                                onPress={() => setScreen("list")}>
-                                <Text style={styles.btnSecondaryText}>
-                                    Cancel
-                                </Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={styles.btnPrimary}
-                                onPress={handleSaveEnquiry}>
-                                <Ionicons
-                                    name="save-outline"
-                                    size={20}
-                                    color="#fff"
-                                />
-                                <Text style={styles.btnPrimaryText}>
-                                    Save Enquiry
-                                </Text>
-                            </TouchableOpacity>
-                        </View>
-                    </ScrollView>
-                </KeyboardAvoidingView>
+                <AddEnquiryForm
+                    formData={formData}
+                    handleFormFieldChange={handleFormFieldChange}
+                    onBack={() => setScreen("list")}
+                    onSave={handleSaveEnquiry}
+                />
             )}
 
             {/* --- FOLLOW UP MODAL --- */}

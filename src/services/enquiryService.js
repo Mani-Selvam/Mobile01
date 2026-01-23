@@ -1,17 +1,23 @@
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const API_URL = "http://192.168.1.33:5000/api"; // Change to your server IP
+const API_URL = "http://192.168.1.33:5000/api"; // Local development server
 
 // Create axios instance with auth token
 const createApiClient = async () => {
     const token = await AsyncStorage.getItem("token");
+    const headers = {
+        "Content-Type": "application/json",
+    };
+
+    // Only add Authorization header if token exists
+    if (token) {
+        headers.Authorization = `Bearer ${token}`;
+    }
+
     return axios.create({
         baseURL: API_URL,
-        headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-        },
+        headers,
     });
 };
 
@@ -24,7 +30,7 @@ export const createEnquiry = async (enquiryData) => {
     } catch (error) {
         console.error(
             "Create enquiry error:",
-            error.response?.data || error.message
+            error.response?.data || error.message,
         );
         throw error;
     }
@@ -39,7 +45,7 @@ export const getAllEnquiries = async () => {
     } catch (error) {
         console.error(
             "Get enquiries error:",
-            error.response?.data || error.message
+            error.response?.data || error.message,
         );
         throw error;
     }
@@ -54,7 +60,7 @@ export const getEnquiryById = async (id) => {
     } catch (error) {
         console.error(
             "Get enquiry error:",
-            error.response?.data || error.message
+            error.response?.data || error.message,
         );
         throw error;
     }
@@ -69,7 +75,7 @@ export const updateEnquiry = async (id, enquiryData) => {
     } catch (error) {
         console.error(
             "Update enquiry error:",
-            error.response?.data || error.message
+            error.response?.data || error.message,
         );
         throw error;
     }
@@ -84,7 +90,7 @@ export const deleteEnquiry = async (id) => {
     } catch (error) {
         console.error(
             "Delete enquiry error:",
-            error.response?.data || error.message
+            error.response?.data || error.message,
         );
         throw error;
     }
@@ -99,7 +105,7 @@ export const getEnquiriesByStatus = async (status) => {
     } catch (error) {
         console.error(
             "Get enquiries by status error:",
-            error.response?.data || error.message
+            error.response?.data || error.message,
         );
         throw error;
     }

@@ -13,114 +13,103 @@ import {
     Dimensions,
     Animated,
     TextInput,
+    ActivityIndicator,
+    RefreshControl,
 } from "react-native";
 import { Ionicons, MaterialIcons, FontAwesome5 } from "@expo/vector-icons";
+import * as enquiryService from "../services/enquiryService";
+import * as followupService from "../services/followupService";
 
 const { width } = Dimensions.get("window");
-
-// --- MOCK DATA ---
-const MOCK_ENQUIRIES = [
-    {
-        id: 1,
-        name: "Rahul Sharma",
-        product: "iPhone 15",
-        status: "New",
-        date: "2023-10-25",
-    },
-    {
-        id: 2,
-        name: "Priya Singh",
-        product: "Samsung S24",
-        status: "In Progress",
-        date: "2023-10-24",
-    },
-    {
-        id: 3,
-        name: "Amit Verma",
-        product: "MacBook Air",
-        status: "Converted",
-        date: "2023-10-20",
-    },
-    {
-        id: 4,
-        name: "Sneha Gupta",
-        product: "iPad Pro",
-        status: "Closed",
-        date: "2023-10-15",
-    },
-    {
-        id: 5,
-        name: "Vikram Malhotra",
-        product: "OnePlus 12",
-        status: "New",
-        date: "2023-10-26",
-    },
-];
-
-const MOCK_FOLLOWUPS = [
-    {
-        id: 101,
-        name: "Rahul Sharma",
-        type: "Call",
-        time: "10:00 AM",
-        status: "Pending",
-        isMissed: false,
-    },
-    {
-        id: 102,
-        name: "Priya Singh",
-        type: "Visit",
-        time: "11:30 AM",
-        status: "Pending",
-        isMissed: false,
-    },
-    {
-        id: 103,
-        name: "Amit Verma",
-        type: "WhatsApp",
-        time: "09:00 AM",
-        status: "Missed",
-        isMissed: true,
-    },
-    {
-        id: 104,
-        name: "John Doe",
-        type: "Call",
-        time: "02:00 PM",
-        status: "Pending",
-        isMissed: false,
-    },
-    {
-        id: 105,
-        name: "Sarah Smith",
-        type: "Call",
-        time: "04:30 PM",
-        status: "Pending",
-        isMissed: false,
-    },
-];
 
 export default function HomeScreen() {
     const [menuVisible, setMenuVisible] = useState(false);
     const [notifications] = useState(3); // Mock notification count
     const [searchQuery, setSearchQuery] = useState("");
 
+    // State for data fetched from API
+    const [enquiries, setEnquiries] = useState([]);
+    const [followUps, setFollowUps] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
+
+    // State for search results
+    const [searchResults, setSearchResults] = useState(null);
+    const [searching, setSearching] = useState(false);
+
+    // Fetch data on component mount
+    useEffect(() => {
+        fetchData();
+    }, []);
+
+    // Function to fetch data from API
+    const fetchData = async () => {
+        try {
+            setLoading(true);
+            const [enquiriesData, followUpsData] = await Promise.all([
+                enquiryService.getAllEnquiries(),
+                followupService.getFollowUps("Today"),
+            ]);
+            setEnquiries(enquiriesData);
+            setFollowUps(followUpsData);
+        } catch (error) {
+            Alert.alert("Error", "Failed to load data. Please try again.");
+            console.error(error);
+        } finally {
+            setLoading(false);
+            setRefreshing(false);
+        }
+    };
+
+    // Function to handle refresh
+    const handleRefresh = () => {
+        setRefreshing(true);
+        fetchData();
+    };
+
     // Calculate counts for Summary Cards
     const getCounts = () => ({
-        new: MOCK_ENQUIRIES.filter((e) => e.status === "New").length,
-        inProgress: MOCK_ENQUIRIES.filter((e) => e.status === "In Progress")
-            .length,
-        converted: MOCK_ENQUIRIES.filter((e) => e.status === "Converted")
-            .length,
-        closed: MOCK_ENQUIRIES.filter((e) => e.status === "Closed").length,
+        new: enquiries.filter((e) => e.status === "New").length,
+        inProgress: enquiries.filter((e) => e.status === "In Progress").length,
+        converted: enquiries.filter((e) => e.status === "Converted").length,
+        closed: enquiries.filter((e) => e.status === "Closed").length,
     });
 
     const counts = getCounts();
 
     // --- HANDLERS ---
-    const handleSearch = () => {
-        Alert.alert("Search", `Searching for: ${searchQuery}`);
+    const handleSearch = async () => {
+        if (!searchQuery.trim()) {
+            setSearchResults(null);
+            return;
+        }
+
+        try {
+            setSearching(true);
+            const results = await enquiryService.getAllEnquiries();
+            const filteredResults = results.filter(
+                (e) =>
+                    e.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                    e.product.toLowerCase().includes(searchQuery.toLowerCase()),
+            );
+            setSearchResults({
+                enquiries: filteredResults,
+                followUps: [],
+            });
+        } catch (error) {
+            Alert.alert("Error", "Search failed. Please try again.");
+            console.error(error);
+        } finally {
+            setSearching(false);
+        }
     };
+
+    // Reset search when query is cleared
+    useEffect(() => {
+        if (!searchQuery.trim()) {
+            setSearchResults(null);
+        }
+    }, [searchQuery]);
 
     const handleQuickAction = (action) => {
         Alert.alert("Navigation", `Opening ${action}...`);
@@ -251,9 +240,35 @@ export default function HomeScreen() {
                     <Ionicons name="eye-outline" size={20} color="#64748b" />
                 </TouchableOpacity>
                 <TouchableOpacity
-                    onPress={() =>
-                        Alert.alert("Update", "Updating follow-up...")
-                    }
+                    onPress={async () => {
+                        Alert.alert("Update", "Updating follow-up...", [
+                            { text: "Cancel", style: "cancel" },
+                            {
+                                text: "Mark Complete",
+                                onPress: async () => {
+                                    try {
+                                        await API.updateFollowUp(
+                                            item.id,
+                                            "Completed",
+                                        );
+                                        // Refresh data
+                                        const updatedFollowUps =
+                                            await API.getFollowUps();
+                                        setFollowUps(updatedFollowUps);
+                                        Alert.alert(
+                                            "Success",
+                                            "Follow-up marked as complete",
+                                        );
+                                    } catch (error) {
+                                        Alert.alert(
+                                            "Error",
+                                            "Failed to update follow-up",
+                                        );
+                                    }
+                                },
+                            },
+                        ]);
+                    }}
                     style={{ marginLeft: 15 }}>
                     <MaterialIcons name="update" size={20} color="#2563eb" />
                 </TouchableOpacity>
@@ -331,7 +346,13 @@ export default function HomeScreen() {
 
             <ScrollView
                 showsVerticalScrollIndicator={false}
-                style={styles.scrollView}>
+                style={styles.scrollView}
+                refreshControl={
+                    <RefreshControl
+                        refreshing={refreshing}
+                        onRefresh={handleRefresh}
+                    />
+                }>
                 {/* --- SECTION 5: QUICK SEARCH (Moved up for accessibility) --- */}
                 <View style={styles.searchContainer}>
                     <Ionicons name="search" size={20} color="#94a3b8" />
@@ -342,6 +363,9 @@ export default function HomeScreen() {
                         onChangeText={setSearchQuery}
                         onSubmitEditing={handleSearch}
                     />
+                    {searching && (
+                        <ActivityIndicator size="small" color="#2563eb" />
+                    )}
                 </View>
 
                 {/* --- SECTION 1: QUICK ACTIONS --- */}
@@ -352,14 +376,45 @@ export default function HomeScreen() {
                         icon="add-circle"
                         color="#2563eb"
                         bgColor="#dbeafe"
-                        onPress={() => handleQuickAction("Add Enquiry")}
+                        onPress={async () => {
+                            Alert.alert(
+                                "Add Enquiry",
+                                "This would open a form to add a new enquiry",
+                                [
+                                    { text: "Cancel", style: "cancel" },
+                                    {
+                                        text: "Simulate Add",
+                                        onPress: async () => {
+                                            try {
+                                                await API.addEnquiry({
+                                                    name: "New Customer",
+                                                    product: "Test Product",
+                                                    status: "New",
+                                                });
+                                                // Refresh data
+                                                fetchData();
+                                                Alert.alert(
+                                                    "Success",
+                                                    "Enquiry added successfully",
+                                                );
+                                            } catch (error) {
+                                                Alert.alert(
+                                                    "Error",
+                                                    "Failed to add enquiry",
+                                                );
+                                            }
+                                        },
+                                    },
+                                ],
+                            );
+                        }}
                     />
                     <QuickActionCard
                         title="My Follow-ups"
                         icon="call"
                         color="#f59e0b"
                         bgColor="#fef3c7"
-                        count={MOCK_FOLLOWUPS.length}
+                        count={followUps.length}
                         onPress={() => handleQuickAction("My Follow-ups")}
                     />
                     <QuickActionCard
@@ -421,16 +476,26 @@ export default function HomeScreen() {
                     </TouchableOpacity>
                 </View>
 
-                <View style={styles.listContainer}>
-                    {MOCK_FOLLOWUPS.slice(0, 5).map((item) => (
-                        <FollowUpItem key={item.id} item={item} />
-                    ))}
-                    {MOCK_FOLLOWUPS.length === 0 && (
-                        <Text style={styles.emptyText}>
-                            No follow-ups scheduled for today.
-                        </Text>
-                    )}
-                </View>
+                {loading ? (
+                    <View style={styles.loadingContainer}>
+                        <ActivityIndicator size="large" color="#2563eb" />
+                        <Text style={styles.loadingText}>Loading data...</Text>
+                    </View>
+                ) : (
+                    <View style={styles.listContainer}>
+                        {(searchResults ? searchResults.followUps : followUps)
+                            .slice(0, 5)
+                            .map((item) => (
+                                <FollowUpItem key={item.id} item={item} />
+                            ))}
+                        {(searchResults ? searchResults.followUps : followUps)
+                            .length === 0 && (
+                            <Text style={styles.emptyText}>
+                                No follow-ups scheduled for today.
+                            </Text>
+                        )}
+                    </View>
+                )}
 
                 {/* --- SECTION 4: RECENT ENQUIRIES --- */}
                 <View style={styles.sectionHeader}>
@@ -441,11 +506,27 @@ export default function HomeScreen() {
                     </TouchableOpacity>
                 </View>
 
-                <View style={styles.listContainer}>
-                    {MOCK_ENQUIRIES.map((item) => (
-                        <EnquiryItem key={item.id} item={item} />
-                    ))}
-                </View>
+                {loading ? (
+                    <View style={styles.loadingContainer}>
+                        <ActivityIndicator size="large" color="#2563eb" />
+                        <Text style={styles.loadingText}>Loading data...</Text>
+                    </View>
+                ) : (
+                    <View style={styles.listContainer}>
+                        {(searchResults
+                            ? searchResults.enquiries
+                            : enquiries
+                        ).map((item) => (
+                            <EnquiryItem key={item.id} item={item} />
+                        ))}
+                        {(searchResults ? searchResults.enquiries : enquiries)
+                            .length === 0 && (
+                            <Text style={styles.emptyText}>
+                                No enquiries found.
+                            </Text>
+                        )}
+                    </View>
+                )}
 
                 {/* --- SECTION 6: QUICK IMPORT / EXPORT --- */}
                 <View style={styles.ieContainer}>
@@ -532,6 +613,19 @@ const styles = StyleSheet.create({
     // Scroll Content
     scrollView: {
         padding: 20,
+    },
+
+    // Loading state
+    loadingContainer: {
+        flex: 1,
+        justifyContent: "center",
+        alignItems: "center",
+        padding: 20,
+    },
+    loadingText: {
+        marginTop: 10,
+        color: "#64748b",
+        fontSize: 14,
     },
 
     // Search

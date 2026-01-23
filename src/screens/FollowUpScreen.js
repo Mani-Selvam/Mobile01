@@ -16,54 +16,27 @@ import {
     ActivityIndicator,
 } from "react-native";
 import { Ionicons, MaterialIcons, FontAwesome5 } from "@expo/vector-icons";
-
-// --- INITIAL DATA ---
-const initialEnquiries = [
-    {
-        id: 1,
-        enqNo: "ENQ-001",
-        date: "2023-10-25",
-        name: "John Doe",
-        mobile: "9876543210",
-        product: "Smartphone X",
-        value: "25000",
-        status: "New", // New, In Progress, Converted, Closed
-        source: "Website",
-    },
-];
-
-const initialFollowUps = [
-    {
-        id: 101,
-        enqId: 1,
-        enqNo: "ENQ-001",
-        name: "John Doe",
-        date: "2023-10-20",
-        time: "10:00 AM",
-        type: "Call",
-        remarks: "Initial interest, needs specs.",
-        nextAction: "Interested",
-        status: "Completed", // Completed, Missed, Scheduled
-    },
-];
+import * as enquiryService from "../services/enquiryService";
+import * as followupService from "../services/followupService";
 
 // --- MAIN APP ---
 export default function App() {
     // Navigation State
     const [screen, setScreen] = useState("ENQUIRY_LIST"); // ENQUIRY_LIST, ADD_ENQ, ADD_FOLLOWUP, MY_FOLLOWUPS
 
-    // Data State
-    const [enquiries, setEnquiries] = useState(initialEnquiries);
-    const [followUps, setFollowUps] = useState(initialFollowUps);
+    // Data State (Initialized empty, fetched from API)
+    const [enquiries, setEnquiries] = useState([]);
+    const [followUps, setFollowUps] = useState([]);
+    const [isLoading, setIsLoading] = useState(true);
 
     // Form State
-    const [selectedEnquiry, setSelectedEnquiry] = useState(null); // For passing data to follow-up
+    const [selectedEnquiry, setSelectedEnquiry] = useState(null);
     const [followUpForm, setFollowUpForm] = useState({
         date: "",
         time: "",
-        type: "Call", // Call, WhatsApp, Visit
+        type: "Call",
         remarks: "",
-        nextAction: "Interested", // Interested, Need Time, Not Interested, Converted
+        nextAction: "Interested",
         isNextRequired: false,
         nextDate: "",
     });
@@ -76,57 +49,98 @@ export default function App() {
     const [showExportModal, setShowExportModal] = useState(false);
     const [importDataPreview, setImportDataPreview] = useState([]);
 
+    // --- EFFECTS ---
+
+    // 1. Fetch initial data on load
+    useEffect(() => {
+        fetchEnquiries();
+        fetchFollowUps("Today");
+        // Set initial date for form
+        const today = new Date().toISOString().split("T")[0];
+        setFollowUpForm((prev) => ({ ...prev, date: today }));
+    }, []);
+
+    // 2. Refetch follow-ups when Tab changes
+    useEffect(() => {
+        fetchFollowUps(activeTab);
+    }, [activeTab]);
+
     // --- LOGIC HELPERS ---
 
     const getStatusColor = (status) => {
         switch (status) {
             case "New":
-                return { bg: "#fef3c7", text: "#d97706" }; // Yellow
+                return { bg: "#fef3c7", text: "#d97706" };
             case "In Progress":
-                return { bg: "#dbeafe", text: "#2563eb" }; // Blue
+                return { bg: "#dbeafe", text: "#2563eb" };
             case "Converted":
-                return { bg: "#d1fae5", text: "#059669" }; // Green
+                return { bg: "#d1fae5", text: "#059669" };
             case "Closed":
-                return { bg: "#f1f5f9", text: "#64748b" }; // Gray
+                return { bg: "#f1f5f9", text: "#64748b" };
             case "Missed":
-                return { bg: "#fee2e2", text: "#dc2626" }; // Red
+                return { bg: "#fee2e2", text: "#dc2626" };
             default:
                 return { bg: "#f3f4f6", text: "#374151" };
         }
     };
 
     const getFilteredFollowUps = () => {
-        const todayStr = new Date().toISOString().split("T")[0];
-        return followUps.filter((item) => {
-            if (activeTab === "Today")
-                return item.date === todayStr && item.status !== "Completed";
-            if (activeTab === "Upcoming")
-                return item.date > todayStr && item.status !== "Completed";
-            if (activeTab === "Missed")
-                return item.date < todayStr && item.status !== "Completed";
-            if (activeTab === "Completed") return item.status === "Completed";
-            return true;
-        });
+        // Filtering is now handled by the server, but we keep this helper for UI calculations if needed
+        return followUps;
     };
 
-    // --- HANDLERS ---
-
-    const handleStartFollowUp = (enq) => {
-        setSelectedEnquiry(enq);
-        // Reset form but keep Auto-filled logic ready
-        setFollowUpForm({
-            date: new Date().toISOString().split("T")[0],
-            time: "",
-            type: "Call",
-            remarks: "",
-            nextAction: "Interested",
-            isNextRequired: false,
-            nextDate: "",
-        });
-        setScreen("ADD_FOLLOWUP");
+    // --- API HANDLERS ---
+    // API: Fetch All Enquiries
+    const fetchEnquiries = async () => {
+        try {
+            const data = await enquiryService.getAllEnquiries();
+            setEnquiries(data);
+            setIsLoading(false);
+        } catch (error) {
+            console.error("Error fetching enquiries:", error);
+            Alert.alert("Error", "Could not connect to server");
+            setIsLoading(false);
+        }
     };
 
-    const handleSaveFollowUp = (addNext = false) => {
+    // API: Fetch Follow-ups (With Tab)
+    const fetchFollowUps = async (tab) => {
+        try {
+            const data = await followupService.getFollowUps(tab);
+            setFollowUps(data);
+        } catch (error) {
+            console.error("Error fetching follow-ups:", error);
+        }
+    };
+
+    // API: Start Follow-up (Fetches Enq Details for Auto-fill)
+    const handleStartFollowUp = async (enq) => {
+        try {
+            // 1. Fetch detailed data for this Enquiry
+            const data = await enquiryService.getEnquiryById(enq.id);
+
+            // 2. Set Enquiry for Form Auto-fill
+            setSelectedEnquiry(data);
+
+            // 3. Reset Form
+            setFollowUpForm({
+                date: new Date().toISOString().split("T")[0],
+                time: "",
+                type: "Call",
+                remarks: "",
+                nextAction: "Interested",
+                isNextRequired: false,
+                nextDate: "",
+            });
+            setScreen("ADD_FOLLOWUP");
+        } catch (error) {
+            Alert.alert("Error", "Could not load enquiry details");
+        }
+    };
+
+    // API: Save Follow-up
+    const handleSaveFollowUp = async (addNext = false) => {
+        // Validation
         if (!followUpForm.remarks) {
             Alert.alert("Required", "Please enter Discussion / Remarks");
             return;
@@ -136,48 +150,42 @@ export default function App() {
             return;
         }
 
-        // 1. Create Follow-up Record
-        const newRecord = {
-            id: Date.now(),
-            enqId: selectedEnquiry.id,
-            enqNo: selectedEnquiry.enqNo,
-            name: selectedEnquiry.name,
-            date: followUpForm.date,
-            time: followUpForm.time,
-            type: followUpForm.type,
-            remarks: followUpForm.remarks,
-            nextAction: followUpForm.nextAction,
-            status: "Scheduled", // Assuming current date is target date, or handled by filter
-        };
+        try {
+            // Prepare Payload
+            const payload = {
+                ...followUpForm,
+                enqNo: selectedEnquiry.enqNo,
+                name: selectedEnquiry.name,
+            };
 
-        setFollowUps([newRecord, ...followUps]);
+            // POST to API
+            await followupService.createFollowUp(payload);
 
-        // 2. Update Enquiry Status based on Next Action
-        let updatedStatus = "In Progress";
-        if (followUpForm.nextAction === "Converted")
-            updatedStatus = "Converted";
-        if (followUpForm.nextAction === "Not Interested")
-            updatedStatus = "Closed";
+            // Backend automatically updated Enquiry Status.
+            // Now refresh lists to reflect changes.
+            await fetchEnquiries();
+            await fetchFollowUps(activeTab); // Refresh current tab
 
-        const updatedEnquiries = enquiries.map((e) => {
-            if (e.id === selectedEnquiry.id) {
-                return { ...e, status: updatedStatus };
+            if (addNext) {
+                Alert.alert("Success", "Follow-up saved. Ready for next.");
+                setFollowUpForm((prev) => ({
+                    ...prev,
+                    remarks: "",
+                    time: "",
+                }));
+            } else {
+                setScreen("MY_FOLLOWUPS");
             }
-            return e;
-        });
-        setEnquiries(updatedEnquiries);
-
-        // 3. Navigation Logic
-        if (addNext) {
-            Alert.alert("Success", "Follow-up saved. Ready for next.");
-            setFollowUpForm({ ...followUpForm, remarks: "", time: "" }); // Clear inputs only
-        } else {
-            setScreen("MY_FOLLOWUPS");
+        } catch (error) {
+            console.error(error);
+            Alert.alert(
+                "Error",
+                "Network error. Please check your connection.",
+            );
         }
     };
 
     const handleImportSimulate = () => {
-        // Simulate reading a CSV file with some errors
         const mockData = [
             {
                 enqNo: "ENQ-999",
@@ -190,7 +198,7 @@ export default function App() {
                 name: "Error Missing No",
                 mobile: "123",
                 error: true,
-            }, // Highlighted Red
+            },
             {
                 enqNo: "ENQ-888",
                 name: "Another User",
@@ -239,7 +247,9 @@ export default function App() {
 
             <ScrollView
                 style={styles.formContainer}
-                showsVerticalScrollIndicator={false}>
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                scrollEnabled={true}>
                 {/* Auto-filled Section */}
                 <View style={styles.card}>
                     <Text style={styles.cardHeaderLabel}>
@@ -298,6 +308,8 @@ export default function App() {
                                     })
                                 }
                                 placeholder="YYYY-MM-DD"
+                                placeholderTextColor="#94a3b8"
+                                selectionColor="#2563eb"
                             />
                         </View>
                         <View style={{ flex: 1 }}>
@@ -312,6 +324,8 @@ export default function App() {
                                     })
                                 }
                                 placeholder="HH:MM"
+                                placeholderTextColor="#94a3b8"
+                                selectionColor="#2563eb"
                             />
                         </View>
                     </View>
@@ -357,6 +371,8 @@ export default function App() {
                             }
                             placeholder="Enter details..."
                             multiline
+                            placeholderTextColor="#94a3b8"
+                            selectionColor="#2563eb"
                         />
                     </View>
 
@@ -418,9 +434,7 @@ export default function App() {
                     </View>
 
                     {followUpForm.isNextRequired && (
-                        <View
-                            style={styles.inputGroup}
-                            style={{ marginTop: 10 }}>
+                        <View style={[styles.inputGroup, { marginTop: 10 }]}>
                             <Text style={styles.label}>
                                 Next Follow-up Date
                             </Text>
@@ -434,6 +448,8 @@ export default function App() {
                                     })
                                 }
                                 placeholder="YYYY-MM-DD"
+                                placeholderTextColor="#94a3b8"
+                                selectionColor="#2563eb"
                             />
                         </View>
                     )}
@@ -490,8 +506,10 @@ export default function App() {
             </View>
 
             <FlatList
-                data={getFilteredFollowUps()}
-                keyExtractor={(item) => item.id.toString()}
+                data={followUps}
+                keyExtractor={(item, index) =>
+                    item?.id ? item.id.toString() : `item-${index}`
+                }
                 contentContainerStyle={{ padding: 15, paddingBottom: 80 }}
                 ListEmptyComponent={
                     <Text
@@ -500,13 +518,15 @@ export default function App() {
                             marginTop: 50,
                             color: "gray",
                         }}>
-                        No {activeTab.toLowerCase()} follow-ups
+                        {isLoading
+                            ? "Loading..."
+                            : `No ${activeTab.toLowerCase()} follow-ups`}
                     </Text>
                 }
                 renderItem={({ item }) => {
                     const colors = getStatusColor(
                         item.nextAction === "Converted" ? "Converted" : "New",
-                    ); // Mock status logic
+                    );
                     return (
                         <View style={styles.listCard}>
                             <View style={styles.listHeader}>
@@ -588,8 +608,6 @@ export default function App() {
                     );
                 }}
             />
-
-            {/* Floating Action Button for quick add if needed, sticking to module reqs */}
         </View>
     );
 
@@ -607,8 +625,22 @@ export default function App() {
 
             <FlatList
                 data={enquiries}
-                keyExtractor={(item) => item.id.toString()}
+                keyExtractor={(item, index) =>
+                    item?.id ? item.id.toString() : `item-${index}`
+                }
                 contentContainerStyle={{ padding: 15 }}
+                refreshing={isLoading}
+                onRefresh={fetchEnquiries}
+                ListEmptyComponent={
+                    <Text
+                        style={{
+                            textAlign: "center",
+                            marginTop: 50,
+                            color: "gray",
+                        }}>
+                        {isLoading ? "Loading..." : "No enquiries found"}
+                    </Text>
+                }
                 renderItem={({ item }) => {
                     const colors = getStatusColor(item.status);
                     return (
@@ -705,7 +737,9 @@ export default function App() {
                             Rows with errors are highlighted in red.
                         </Text>
 
-                        <ScrollView style={{ flex: 1, width: "100%" }}>
+                        <ScrollView
+                            style={{ flex: 1, width: "100%" }}
+                            keyboardShouldPersistTaps="handled">
                             {importDataPreview.map((row, idx) => (
                                 <View
                                     key={idx}
