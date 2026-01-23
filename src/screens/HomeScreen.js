@@ -68,12 +68,15 @@ export default function HomeScreen() {
     };
 
     // Calculate counts for Summary Cards
-    const getCounts = () => ({
-        new: enquiries.filter((e) => e.status === "New").length,
-        inProgress: enquiries.filter((e) => e.status === "In Progress").length,
-        converted: enquiries.filter((e) => e.status === "Converted").length,
-        closed: enquiries.filter((e) => e.status === "Closed").length,
-    });
+    const getCounts = () => {
+        if (!Array.isArray(enquiries)) return { new: 0, inProgress: 0, converted: 0, closed: 0 };
+        return {
+            new: enquiries.filter((e) => e.status === "New").length,
+            inProgress: enquiries.filter((e) => e.status === "In Progress").length,
+            converted: enquiries.filter((e) => e.status === "Converted").length,
+            closed: enquiries.filter((e) => e.status === "Closed").length,
+        };
+    };
 
     const counts = getCounts();
 
@@ -483,13 +486,14 @@ export default function HomeScreen() {
                     </View>
                 ) : (
                     <View style={styles.listContainer}>
-                        {(searchResults ? searchResults.followUps : followUps)
-                            .slice(0, 5)
-                            .map((item) => (
-                                <FollowUpItem key={item.id} item={item} />
-                            ))}
-                        {(searchResults ? searchResults.followUps : followUps)
-                            .length === 0 && (
+                        {Array.isArray(searchResults ? searchResults.followUps : followUps) &&
+                            (searchResults ? searchResults.followUps : followUps)
+                                .slice(0, 5)
+                                .map((item) => (
+                                    <FollowUpItem key={item.id} item={item} />
+                                ))}
+                        {(!Array.isArray(searchResults ? searchResults.followUps : followUps) || 
+                          (searchResults ? searchResults.followUps : followUps).length === 0) && (
                             <Text style={styles.emptyText}>
                                 No follow-ups scheduled for today.
                             </Text>
@@ -513,14 +517,12 @@ export default function HomeScreen() {
                     </View>
                 ) : (
                     <View style={styles.listContainer}>
-                        {(searchResults
-                            ? searchResults.enquiries
-                            : enquiries
-                        ).map((item) => (
-                            <EnquiryItem key={item.id} item={item} />
-                        ))}
-                        {(searchResults ? searchResults.enquiries : enquiries)
-                            .length === 0 && (
+                        {Array.isArray(searchResults ? searchResults.enquiries : enquiries) &&
+                            (searchResults ? searchResults.enquiries : enquiries).map((item) => (
+                                <EnquiryItem key={item.id} item={item} />
+                            ))}
+                        {(!Array.isArray(searchResults ? searchResults.enquiries : enquiries) || 
+                          (searchResults ? searchResults.enquiries : enquiries).length === 0) && (
                             <Text style={styles.emptyText}>
                                 No enquiries found.
                             </Text>

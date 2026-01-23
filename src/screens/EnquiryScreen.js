@@ -17,13 +17,10 @@ import {
 } from "react-native";
 import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 import * as enquiryService from "../services/enquiryService";
+import { API_URL as GLOBAL_API_URL } from "../services/apiConfig";
 
 // --- CONFIGURATION ---
-// CHANGE THIS URL based on how you are running the app:
-// 1. Real Device: Use your PC's WiFi IP (e.g., http://192.168.1.5:5000)
-// 2. Android Emulator: http://10.0.2.2:5000
-// 3. iOS Simulator: http://localhost:5000
-const API_URL = "http://192.168.1.33:5000/api/enquiries";
+const API_URL = `${GLOBAL_API_URL}/enquiries`;
 
 // --- SUB-COMPONENTS (Moved outside App for stability) ---
 
