@@ -1,1337 +1,1121 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
-    View,
-    Text,
     StyleSheet,
+    Text,
+    View,
+    TextInput,
     TouchableOpacity,
     FlatList,
-    ScrollView,
     Modal,
-    TextInput,
+    ScrollView,
     Alert,
+    SafeAreaView,
+    KeyboardAvoidingView,
     Platform,
+    StatusBar,
+    ActivityIndicator,
 } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
-import { MaterialIcons, MaterialCommunityIcons } from "@expo/vector-icons";
-import Animated, { FadeInUp } from "react-native-reanimated";
+import { Ionicons, MaterialIcons, FontAwesome5 } from "@expo/vector-icons";
 
-export default function FollowUpScreen() {
-    // Sample data - in real app, this comes from context or props
-    const [followUps, setFollowUps] = useState([
-        {
-            id: "1",
-            enquiryId: "ENQ123456",
-            customerName: "John Doe",
-            mobileNumber: "9876543210",
-            productName: "Solar Panel",
-            date: "2024-01-25",
-            time: "14:30",
-            type: "Call",
-            remarks: "Customer interested, asked for price quote",
-            nextAction: "Interested",
-            status: "Pending",
-            createdAt: "2024-01-22T10:00:00Z",
-        },
-        {
-            id: "2",
-            enquiryId: "ENQ123457",
-            customerName: "Jane Smith",
-            mobileNumber: "9876543211",
-            productName: "Water Pump",
-            date: "2024-01-23",
-            time: "10:00",
-            type: "Visit",
-            remarks: "Site survey completed, final discussion scheduled",
-            nextAction: "Converted",
-            status: "Completed",
-            createdAt: "2024-01-20T09:00:00Z",
-        },
-    ]);
+// --- INITIAL DATA ---
+const initialEnquiries = [
+    {
+        id: 1,
+        enqNo: "ENQ-001",
+        date: "2023-10-25",
+        name: "John Doe",
+        mobile: "9876543210",
+        product: "Smartphone X",
+        value: "25000",
+        status: "New", // New, In Progress, Converted, Closed
+        source: "Website",
+    },
+];
 
-    const [showForm, setShowForm] = useState(false);
-    const [selectedFollowUp, setSelectedFollowUp] = useState(null);
-    const [newFollowUp, setNewFollowUp] = useState({
-        customerName: "",
-        mobileNumber: "",
-        productName: "",
+const initialFollowUps = [
+    {
+        id: 101,
+        enqId: 1,
+        enqNo: "ENQ-001",
+        name: "John Doe",
+        date: "2023-10-20",
+        time: "10:00 AM",
+        type: "Call",
+        remarks: "Initial interest, needs specs.",
+        nextAction: "Interested",
+        status: "Completed", // Completed, Missed, Scheduled
+    },
+];
+
+// --- MAIN APP ---
+export default function App() {
+    // Navigation State
+    const [screen, setScreen] = useState("ENQUIRY_LIST"); // ENQUIRY_LIST, ADD_ENQ, ADD_FOLLOWUP, MY_FOLLOWUPS
+
+    // Data State
+    const [enquiries, setEnquiries] = useState(initialEnquiries);
+    const [followUps, setFollowUps] = useState(initialFollowUps);
+
+    // Form State
+    const [selectedEnquiry, setSelectedEnquiry] = useState(null); // For passing data to follow-up
+    const [followUpForm, setFollowUpForm] = useState({
         date: "",
         time: "",
-        type: "Call",
+        type: "Call", // Call, WhatsApp, Visit
         remarks: "",
-        nextAction: "Interested",
+        nextAction: "Interested", // Interested, Need Time, Not Interested, Converted
+        isNextRequired: false,
+        nextDate: "",
     });
 
-    const addFollowUp = () => {
-        if (
-            !newFollowUp.customerName ||
-            !newFollowUp.date ||
-            !newFollowUp.remarks
-        ) {
-            Alert.alert("Validation Error", "Please fill all required fields");
-            return;
+    // My Followups Tab State
+    const [activeTab, setActiveTab] = useState("Today"); // Today, Upcoming, Missed, Completed
+
+    // Import/Export Modal State
+    const [showImportModal, setShowImportModal] = useState(false);
+    const [showExportModal, setShowExportModal] = useState(false);
+    const [importDataPreview, setImportDataPreview] = useState([]);
+
+    // --- LOGIC HELPERS ---
+
+    const getStatusColor = (status) => {
+        switch (status) {
+            case "New":
+                return { bg: "#fef3c7", text: "#d97706" }; // Yellow
+            case "In Progress":
+                return { bg: "#dbeafe", text: "#2563eb" }; // Blue
+            case "Converted":
+                return { bg: "#d1fae5", text: "#059669" }; // Green
+            case "Closed":
+                return { bg: "#f1f5f9", text: "#64748b" }; // Gray
+            case "Missed":
+                return { bg: "#fee2e2", text: "#dc2626" }; // Red
+            default:
+                return { bg: "#f3f4f6", text: "#374151" };
         }
-
-        const followUp = {
-            id: Date.now().toString(),
-            enquiryId: `ENQ${Date.now().toString().slice(-6)}`,
-            ...newFollowUp,
-            status: "Pending",
-            createdAt: new Date().toISOString(),
-        };
-
-        setFollowUps([followUp, ...followUps]);
-        Alert.alert("Success", "Follow-up added successfully!");
-        resetForm();
-        setShowForm(false);
     };
 
-    const resetForm = () => {
-        setNewFollowUp({
-            customerName: "",
-            mobileNumber: "",
-            productName: "",
-            date: "",
+    const getFilteredFollowUps = () => {
+        const todayStr = new Date().toISOString().split("T")[0];
+        return followUps.filter((item) => {
+            if (activeTab === "Today")
+                return item.date === todayStr && item.status !== "Completed";
+            if (activeTab === "Upcoming")
+                return item.date > todayStr && item.status !== "Completed";
+            if (activeTab === "Missed")
+                return item.date < todayStr && item.status !== "Completed";
+            if (activeTab === "Completed") return item.status === "Completed";
+            return true;
+        });
+    };
+
+    // --- HANDLERS ---
+
+    const handleStartFollowUp = (enq) => {
+        setSelectedEnquiry(enq);
+        // Reset form but keep Auto-filled logic ready
+        setFollowUpForm({
+            date: new Date().toISOString().split("T")[0],
             time: "",
             type: "Call",
             remarks: "",
             nextAction: "Interested",
+            isNextRequired: false,
+            nextDate: "",
         });
+        setScreen("ADD_FOLLOWUP");
     };
 
-    const markCompleted = (id) => {
-        setFollowUps(
-            followUps.map((fu) =>
-                fu.id === id ? { ...fu, status: "Completed" } : fu,
-            ),
-        );
-        Alert.alert("Success", "Follow-up marked as completed!");
+    const handleSaveFollowUp = (addNext = false) => {
+        if (!followUpForm.remarks) {
+            Alert.alert("Required", "Please enter Discussion / Remarks");
+            return;
+        }
+        if (followUpForm.isNextRequired && !followUpForm.nextDate) {
+            Alert.alert("Required", "Please select Next Follow-up Date");
+            return;
+        }
+
+        // 1. Create Follow-up Record
+        const newRecord = {
+            id: Date.now(),
+            enqId: selectedEnquiry.id,
+            enqNo: selectedEnquiry.enqNo,
+            name: selectedEnquiry.name,
+            date: followUpForm.date,
+            time: followUpForm.time,
+            type: followUpForm.type,
+            remarks: followUpForm.remarks,
+            nextAction: followUpForm.nextAction,
+            status: "Scheduled", // Assuming current date is target date, or handled by filter
+        };
+
+        setFollowUps([newRecord, ...followUps]);
+
+        // 2. Update Enquiry Status based on Next Action
+        let updatedStatus = "In Progress";
+        if (followUpForm.nextAction === "Converted")
+            updatedStatus = "Converted";
+        if (followUpForm.nextAction === "Not Interested")
+            updatedStatus = "Closed";
+
+        const updatedEnquiries = enquiries.map((e) => {
+            if (e.id === selectedEnquiry.id) {
+                return { ...e, status: updatedStatus };
+            }
+            return e;
+        });
+        setEnquiries(updatedEnquiries);
+
+        // 3. Navigation Logic
+        if (addNext) {
+            Alert.alert("Success", "Follow-up saved. Ready for next.");
+            setFollowUpForm({ ...followUpForm, remarks: "", time: "" }); // Clear inputs only
+        } else {
+            setScreen("MY_FOLLOWUPS");
+        }
     };
 
-    const deleteFollowUp = (id) => {
-        Alert.alert(
-            "Delete Follow-up",
-            "Are you sure you want to delete this follow-up?",
-            [
-                { text: "Cancel", style: "cancel" },
-                {
-                    text: "Delete",
-                    onPress: () => {
-                        setFollowUps(followUps.filter((fu) => fu.id !== id));
-                        Alert.alert(
-                            "Success",
-                            "Follow-up deleted successfully!",
-                        );
-                    },
-                    style: "destructive",
-                },
-            ],
-        );
+    const handleImportSimulate = () => {
+        // Simulate reading a CSV file with some errors
+        const mockData = [
+            {
+                enqNo: "ENQ-999",
+                name: "Valid User",
+                mobile: "9988776655",
+                error: false,
+            },
+            {
+                enqNo: "ENQ-",
+                name: "Error Missing No",
+                mobile: "123",
+                error: true,
+            }, // Highlighted Red
+            {
+                enqNo: "ENQ-888",
+                name: "Another User",
+                mobile: "5544332211",
+                error: false,
+            },
+        ];
+        setImportDataPreview(mockData);
+        setShowImportModal(true);
     };
 
-    const DropdownComponent = ({ label, options, value, onChange }) => (
-        <View style={styles.fieldGroup}>
-            <Text style={styles.label}>{label}</Text>
-            <View style={styles.dropdownButton}>
-                <Text style={styles.dropdownButtonText}>{value}</Text>
-                <MaterialIcons
-                    name="arrow-drop-down"
-                    size={24}
-                    color="#667eea"
-                />
+    // --- RENDER SUB-COMPONENTS ---
+
+    const TopBar = ({ title, showBack = false }) => (
+        <View style={styles.topBar}>
+            <View style={styles.topBarLeft}>
+                {showBack && (
+                    <TouchableOpacity
+                        onPress={() => setScreen("ENQUIRY_LIST")}
+                        style={{ marginRight: 10 }}>
+                        <Ionicons name="arrow-back" size={24} color="#fff" />
+                    </TouchableOpacity>
+                )}
+                <Text style={styles.topBarTitle}>{title}</Text>
+            </View>
+            <View style={styles.topBarRight}>
+                <TouchableOpacity
+                    style={styles.iconBtn}
+                    onPress={handleImportSimulate}>
+                    <Ionicons name="download-outline" size={22} color="#fff" />
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={styles.iconBtn}
+                    onPress={() => setShowExportModal(true)}>
+                    <MaterialIcons name="upload" size={22} color="#fff" />
+                </TouchableOpacity>
             </View>
         </View>
     );
 
-    const renderFollowUp = ({ item }) => (
-        <LinearGradient
-            colors={
-                item.status === "Pending"
-                    ? ["rgba(255,193,7,0.1)", "rgba(255,152,0,0.1)"]
-                    : ["rgba(40,167,69,0.1)", "rgba(34,197,94,0.1)"]
-            }
-            style={styles.followUpItem}>
-            <TouchableOpacity
-                onPress={() => setSelectedFollowUp(item)}
-                style={styles.followUpContent}>
-                <View style={styles.followUpHeader}>
-                    <MaterialCommunityIcons
-                        name={
-                            item.type === "Call"
-                                ? "phone"
-                                : item.type === "WhatsApp"
-                                  ? "whatsapp"
-                                  : item.type === "Visit"
-                                    ? "home"
-                                    : item.type === "Demo"
-                                      ? "presentation"
-                                      : "chat"
-                        }
-                        size={24}
-                        color={
-                            item.status === "Pending" ? "#ffc107" : "#28a745"
-                        }
-                    />
-                    <View style={styles.headerContent}>
-                        <Text style={styles.customerName}>
-                            {item.customerName}
-                        </Text>
-                        <Text style={styles.enquiryId}>{item.enquiryId}</Text>
+    const FollowUpForm = () => (
+        <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            style={{ flex: 1 }}>
+            <TopBar title="Add Follow-up" showBack />
+
+            <ScrollView
+                style={styles.formContainer}
+                showsVerticalScrollIndicator={false}>
+                {/* Auto-filled Section */}
+                <View style={styles.card}>
+                    <Text style={styles.cardHeaderLabel}>
+                        Enquiry Details (Auto-filled)
+                    </Text>
+                    <View style={styles.inputGroup}>
+                        <Text style={styles.label}>Enquiry No</Text>
+                        <TextInput
+                            style={[styles.input, styles.inputReadOnly]}
+                            value={selectedEnquiry?.enqNo}
+                            editable={false}
+                        />
                     </View>
-                    <View style={styles.statusBadge}>
-                        <Text
+                    <View style={styles.inputGroup}>
+                        <Text style={styles.label}>Customer Name</Text>
+                        <TextInput
+                            style={[styles.input, styles.inputReadOnly]}
+                            value={selectedEnquiry?.name}
+                            editable={false}
+                        />
+                    </View>
+                    <View style={styles.inputGroup}>
+                        <Text style={styles.label}>Mobile No</Text>
+                        <TextInput
+                            style={[styles.input, styles.inputReadOnly]}
+                            value={selectedEnquiry?.mobile}
+                            editable={false}
+                        />
+                    </View>
+                    <View style={styles.inputGroup}>
+                        <Text style={styles.label}>Product Name</Text>
+                        <TextInput
+                            style={[styles.input, styles.inputReadOnly]}
+                            value={selectedEnquiry?.product}
+                            editable={false}
+                        />
+                    </View>
+                </View>
+
+                {/* User Input Section */}
+                <View style={styles.card}>
+                    <Text style={styles.cardHeaderLabel}>
+                        Follow-up Details
+                    </Text>
+
+                    <View style={styles.rowInputs}>
+                        <View style={{ flex: 1 }}>
+                            <Text style={styles.label}>Follow-up Date *</Text>
+                            <TextInput
+                                style={styles.input}
+                                value={followUpForm.date}
+                                onChangeText={(t) =>
+                                    setFollowUpForm({
+                                        ...followUpForm,
+                                        date: t,
+                                    })
+                                }
+                                placeholder="YYYY-MM-DD"
+                            />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                            <Text style={styles.label}>Time</Text>
+                            <TextInput
+                                style={styles.input}
+                                value={followUpForm.time}
+                                onChangeText={(t) =>
+                                    setFollowUpForm({
+                                        ...followUpForm,
+                                        time: t,
+                                    })
+                                }
+                                placeholder="HH:MM"
+                            />
+                        </View>
+                    </View>
+
+                    <Text style={styles.label}>Follow-up Type</Text>
+                    <View style={styles.chipContainer}>
+                        {["Call", "WhatsApp", "Visit"].map((type) => (
+                            <TouchableOpacity
+                                key={type}
+                                style={[
+                                    styles.chip,
+                                    followUpForm.type === type &&
+                                        styles.chipActive,
+                                ]}
+                                onPress={() =>
+                                    setFollowUpForm({
+                                        ...followUpForm,
+                                        type: type,
+                                    })
+                                }>
+                                <Text
+                                    style={[
+                                        styles.chipText,
+                                        followUpForm.type === type &&
+                                            styles.chipTextActive,
+                                    ]}>
+                                    {type}
+                                </Text>
+                            </TouchableOpacity>
+                        ))}
+                    </View>
+
+                    <View style={styles.inputGroup}>
+                        <Text style={styles.label}>Discussion / Remarks *</Text>
+                        <TextInput
                             style={[
-                                styles.statusText,
-                                {
-                                    color:
-                                        item.status === "Pending"
-                                            ? "#ffc107"
-                                            : "#28a745",
-                                },
-                            ]}>
-                            {item.status}
-                        </Text>
-                    </View>
-                </View>
-
-                <View style={styles.followUpDetails}>
-                    <View style={styles.detailRow}>
-                        <MaterialIcons
-                            name="date-range"
-                            size={16}
-                            color="#a0a0a0"
+                                styles.input,
+                                { height: 80, textAlignVertical: "top" },
+                            ]}
+                            value={followUpForm.remarks}
+                            onChangeText={(t) =>
+                                setFollowUpForm({ ...followUpForm, remarks: t })
+                            }
+                            placeholder="Enter details..."
+                            multiline
                         />
-                        <Text style={styles.detailText}>
-                            {item.date}
-                            {item.time && ` • ${item.time}`}
-                        </Text>
                     </View>
-                    <View style={styles.detailRow}>
-                        <MaterialIcons
-                            name="shopping-bag"
-                            size={16}
-                            color="#a0a0a0"
-                        />
-                        <Text style={styles.detailText}>
-                            {item.productName}
-                        </Text>
-                    </View>
-                    <View style={styles.detailRow}>
-                        <MaterialIcons name="phone" size={16} color="#a0a0a0" />
-                        <Text style={styles.detailText}>
-                            {item.mobileNumber}
-                        </Text>
-                    </View>
-                    {item.remarks && (
-                        <View style={styles.detailRow}>
-                            <MaterialIcons
-                                name="note"
-                                size={16}
-                                color="#a0a0a0"
-                            />
-                            <Text
-                                style={[styles.detailText, styles.remarksText]}>
-                                {item.remarks}
-                            </Text>
-                        </View>
-                    )}
-                    <View style={styles.actionRow}>
-                        <View style={styles.actionBadge}>
-                            <Text style={styles.actionLabel}>
-                                Next: {item.nextAction}
-                            </Text>
-                        </View>
-                    </View>
-                </View>
-            </TouchableOpacity>
 
-            <View style={styles.followUpActions}>
-                {item.status === "Pending" && (
-                    <LinearGradient
-                        colors={["#28a745", "#20c997"]}
-                        style={styles.actionButtonGradient}>
+                    <Text style={styles.label}>Next Action</Text>
+                    <View style={styles.chipContainer}>
+                        {[
+                            "Interested",
+                            "Need Time",
+                            "Not Interested",
+                            "Converted",
+                        ].map((action) => (
+                            <TouchableOpacity
+                                key={action}
+                                style={[
+                                    styles.chipSmall,
+                                    followUpForm.nextAction === action &&
+                                        styles.chipActive,
+                                ]}
+                                onPress={() =>
+                                    setFollowUpForm({
+                                        ...followUpForm,
+                                        nextAction: action,
+                                    })
+                                }>
+                                <Text
+                                    style={[
+                                        styles.chipTextSmall,
+                                        followUpForm.nextAction === action &&
+                                            styles.chipTextActive,
+                                    ]}>
+                                    {action}
+                                </Text>
+                            </TouchableOpacity>
+                        ))}
+                    </View>
+
+                    <View style={styles.switchRow}>
+                        <Text style={styles.label}>
+                            Next Follow-up Required?
+                        </Text>
                         <TouchableOpacity
-                            style={styles.actionButton}
-                            onPress={() => markCompleted(item.id)}>
-                            <MaterialIcons
-                                name="check"
-                                size={18}
-                                color="#fff"
-                            />
-                            <Text style={styles.actionButtonText}>
-                                Mark Done
+                            style={[
+                                styles.toggle,
+                                followUpForm.isNextRequired
+                                    ? styles.toggleActive
+                                    : styles.toggleInactive,
+                            ]}
+                            onPress={() =>
+                                setFollowUpForm({
+                                    ...followUpForm,
+                                    isNextRequired:
+                                        !followUpForm.isNextRequired,
+                                })
+                            }>
+                            <Text style={styles.toggleText}>
+                                {followUpForm.isNextRequired ? "YES" : "NO"}
                             </Text>
                         </TouchableOpacity>
-                    </LinearGradient>
-                )}
-                <TouchableOpacity
-                    style={styles.deleteButton}
-                    onPress={() => deleteFollowUp(item.id)}>
-                    <MaterialIcons name="delete" size={18} color="#ff6b6b" />
-                </TouchableOpacity>
-            </View>
-        </LinearGradient>
+                    </View>
+
+                    {followUpForm.isNextRequired && (
+                        <View
+                            style={styles.inputGroup}
+                            style={{ marginTop: 10 }}>
+                            <Text style={styles.label}>
+                                Next Follow-up Date
+                            </Text>
+                            <TextInput
+                                style={styles.input}
+                                value={followUpForm.nextDate}
+                                onChangeText={(t) =>
+                                    setFollowUpForm({
+                                        ...followUpForm,
+                                        nextDate: t,
+                                    })
+                                }
+                                placeholder="YYYY-MM-DD"
+                            />
+                        </View>
+                    )}
+                </View>
+
+                <View style={styles.stickyButtons}>
+                    <TouchableOpacity
+                        style={styles.btnCancel}
+                        onPress={() => setScreen("ENQUIRY_LIST")}>
+                        <Text style={styles.btnCancelText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={styles.btnSave}
+                        onPress={() => handleSaveFollowUp(false)}>
+                        <Text style={styles.btnSaveText}>Save Follow-up</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.btnSave, styles.btnSaveNext]}
+                        onPress={() => handleSaveFollowUp(true)}>
+                        <Ionicons name="add" size={20} color="white" />
+                        <Text style={styles.btnSaveText}>Save & Next</Text>
+                    </TouchableOpacity>
+                </View>
+            </ScrollView>
+        </KeyboardAvoidingView>
     );
 
-    return (
-        <LinearGradient
-            colors={["#0f0f23", "#1a1a2e", "#16213e"]}
-            style={styles.container}>
-            <ScrollView
-                style={styles.scrollContainer}
-                showsVerticalScrollIndicator={false}>
-                {/* Header */}
-                <Animated.View
-                    entering={FadeInUp.delay(100)}
-                    style={styles.headerSection}>
-                    <MaterialCommunityIcons
-                        name="calendar-check"
-                        size={32}
-                        color="#667eea"
-                        style={styles.headerIcon}
-                    />
-                    <Text style={styles.title}>Follow-Up Management</Text>
-                    <Text style={styles.subtitle}>
-                        Track and manage all follow-ups
+    const MyFollowUpsList = () => (
+        <View style={{ flex: 1 }}>
+            <TopBar title="My Follow-ups" showBack />
+
+            {/* Tabs */}
+            <View style={styles.tabsContainer}>
+                {["Today", "Upcoming", "Missed", "Completed"].map((tab) => (
+                    <TouchableOpacity
+                        key={tab}
+                        style={[
+                            styles.tab,
+                            activeTab === tab && styles.tabActive,
+                        ]}
+                        onPress={() => setActiveTab(tab)}>
+                        <Text
+                            style={[
+                                styles.tabText,
+                                activeTab === tab && styles.tabTextActive,
+                            ]}>
+                            {tab}
+                        </Text>
+                        {activeTab === tab && (
+                            <View style={styles.tabIndicator} />
+                        )}
+                    </TouchableOpacity>
+                ))}
+            </View>
+
+            <FlatList
+                data={getFilteredFollowUps()}
+                keyExtractor={(item) => item.id.toString()}
+                contentContainerStyle={{ padding: 15, paddingBottom: 80 }}
+                ListEmptyComponent={
+                    <Text
+                        style={{
+                            textAlign: "center",
+                            marginTop: 50,
+                            color: "gray",
+                        }}>
+                        No {activeTab.toLowerCase()} follow-ups
                     </Text>
-                </Animated.View>
-
-                {/* Add New Follow-up Button */}
-                <Animated.View
-                    entering={FadeInUp.delay(150)}
-                    style={styles.buttonContainer}>
-                    <LinearGradient
-                        colors={["#667eea", "#764ba2"]}
-                        style={styles.addButtonGradient}>
-                        <TouchableOpacity
-                            style={styles.addButton}
-                            onPress={() => setShowForm(true)}>
-                            <MaterialCommunityIcons
-                                name="plus"
-                                size={24}
-                                color="#fff"
-                                style={styles.buttonIcon}
-                            />
-                            <Text style={styles.addButtonText}>
-                                New Follow-up
-                            </Text>
-                        </TouchableOpacity>
-                    </LinearGradient>
-                </Animated.View>
-
-                {/* Follow-ups List */}
-                <Animated.View
-                    entering={FadeInUp.delay(200)}
-                    style={styles.listContainer}>
-                    {followUps.length > 0 ? (
-                        <>
+                }
+                renderItem={({ item }) => {
+                    const colors = getStatusColor(
+                        item.nextAction === "Converted" ? "Converted" : "New",
+                    ); // Mock status logic
+                    return (
+                        <View style={styles.listCard}>
                             <View style={styles.listHeader}>
-                                <Text style={styles.listTitle}>
-                                    All Follow-ups ({followUps.length})
-                                </Text>
-                                <View style={styles.statsRow}>
-                                    <View style={styles.statItem}>
-                                        <Text style={styles.statLabel}>
-                                            Pending
-                                        </Text>
-                                        <Text style={styles.statValue}>
-                                            {
-                                                followUps.filter(
-                                                    (fu) =>
-                                                        fu.status === "Pending",
-                                                ).length
-                                            }
-                                        </Text>
-                                    </View>
-                                    <View style={styles.statItem}>
-                                        <Text style={styles.statLabel}>
-                                            Completed
-                                        </Text>
-                                        <Text style={styles.statValue}>
-                                            {
-                                                followUps.filter(
-                                                    (fu) =>
-                                                        fu.status ===
-                                                        "Completed",
-                                                ).length
-                                            }
-                                        </Text>
-                                    </View>
-                                </View>
-                            </View>
-                            <FlatList
-                                data={followUps}
-                                renderItem={renderFollowUp}
-                                keyExtractor={(item) => item.id}
-                                scrollEnabled={false}
-                                style={styles.list}
-                            />
-                        </>
-                    ) : (
-                        <View style={styles.emptyState}>
-                            <MaterialCommunityIcons
-                                name="calendar-blank"
-                                size={48}
-                                color="#667eea"
-                            />
-                            <Text style={styles.emptyStateText}>
-                                No follow-ups yet
-                            </Text>
-                            <Text style={styles.emptyStateSubtext}>
-                                Click "New Follow-up" to add one
-                            </Text>
-                        </View>
-                    )}
-                </Animated.View>
-            </ScrollView>
-
-            {/* Add Follow-up Modal */}
-            <Modal
-                visible={showForm}
-                transparent
-                animationType="slide"
-                onRequestClose={() => setShowForm(false)}>
-                <LinearGradient
-                    colors={["#0f0f23", "#1a1a2e", "#16213e"]}
-                    style={styles.modalContainer}>
-                    <ScrollView style={styles.modalContent}>
-                        <TouchableOpacity
-                            style={styles.closeButton}
-                            onPress={() => {
-                                setShowForm(false);
-                                resetForm();
-                            }}>
-                            <MaterialIcons
-                                name="close"
-                                size={28}
-                                color="#fff"
-                            />
-                        </TouchableOpacity>
-
-                        <Animated.View
-                            entering={FadeInUp.delay(100)}
-                            style={styles.formContainer}>
-                            <View style={styles.formHeader}>
-                                <MaterialCommunityIcons
-                                    name="calendar-clock"
-                                    size={32}
-                                    color="#667eea"
-                                    style={styles.formHeaderIcon}
-                                />
-                                <Text style={styles.formTitle}>
-                                    Add New Follow-up
-                                </Text>
-                            </View>
-
-                            {/* Customer Name */}
-                            <View style={styles.fieldGroup}>
-                                <Text style={styles.label}>
-                                    Customer Name{" "}
-                                    <Text style={styles.required}>*</Text>
-                                </Text>
-                                <View style={styles.inputContainer}>
-                                    <MaterialIcons
-                                        name="person"
-                                        size={20}
-                                        color="#667eea"
-                                        style={styles.inputIcon}
-                                    />
-                                    <TextInput
-                                        style={styles.input}
-                                        placeholder="Enter customer name"
-                                        placeholderTextColor="#a0a0a0"
-                                        value={newFollowUp.customerName}
-                                        onChangeText={(text) =>
-                                            setNewFollowUp({
-                                                ...newFollowUp,
-                                                customerName: text,
-                                            })
-                                        }
-                                    />
-                                </View>
-                            </View>
-
-                            {/* Mobile Number */}
-                            <View style={styles.fieldGroup}>
-                                <Text style={styles.label}>
-                                    Mobile Number{" "}
-                                    <Text style={styles.optional}>
-                                        (Optional)
+                                <View>
+                                    <Text style={styles.enqNo}>
+                                        {item.enqNo}
                                     </Text>
-                                </Text>
-                                <View style={styles.inputContainer}>
-                                    <MaterialIcons
-                                        name="phone"
-                                        size={20}
-                                        color="#667eea"
-                                        style={styles.inputIcon}
-                                    />
-                                    <TextInput
-                                        style={styles.input}
-                                        placeholder="Enter mobile number"
-                                        placeholderTextColor="#a0a0a0"
-                                        value={newFollowUp.mobileNumber}
-                                        onChangeText={(text) =>
-                                            setNewFollowUp({
-                                                ...newFollowUp,
-                                                mobileNumber: text,
-                                            })
-                                        }
-                                        keyboardType="phone-pad"
-                                    />
-                                </View>
-                            </View>
-
-                            {/* Product Name */}
-                            <View style={styles.fieldGroup}>
-                                <Text style={styles.label}>
-                                    Product Name{" "}
-                                    <Text style={styles.optional}>
-                                        (Optional)
+                                    <Text style={styles.subText}>
+                                        {item.name}
                                     </Text>
-                                </Text>
-                                <View style={styles.inputContainer}>
-                                    <MaterialIcons
-                                        name="shopping-bag"
-                                        size={20}
-                                        color="#667eea"
-                                        style={styles.inputIcon}
-                                    />
-                                    <TextInput
-                                        style={styles.input}
-                                        placeholder="Enter product name"
-                                        placeholderTextColor="#a0a0a0"
-                                        value={newFollowUp.productName}
-                                        onChangeText={(text) =>
-                                            setNewFollowUp({
-                                                ...newFollowUp,
-                                                productName: text,
-                                            })
-                                        }
-                                    />
                                 </View>
-                            </View>
-
-                            {/* Date */}
-                            <View style={styles.fieldGroup}>
-                                <Text style={styles.label}>
-                                    Follow-up Date{" "}
-                                    <Text style={styles.required}>*</Text>
-                                </Text>
-                                <View style={styles.inputContainer}>
-                                    <MaterialIcons
-                                        name="event"
-                                        size={20}
-                                        color="#667eea"
-                                        style={styles.inputIcon}
-                                    />
-                                    <TextInput
-                                        style={styles.input}
-                                        placeholder="YYYY-MM-DD"
-                                        placeholderTextColor="#a0a0a0"
-                                        value={newFollowUp.date}
-                                        onChangeText={(text) =>
-                                            setNewFollowUp({
-                                                ...newFollowUp,
-                                                date: text,
-                                            })
-                                        }
-                                    />
-                                </View>
-                            </View>
-
-                            {/* Time */}
-                            <View style={styles.fieldGroup}>
-                                <Text style={styles.label}>
-                                    Follow-up Time{" "}
-                                    <Text style={styles.optional}>
-                                        (Optional)
-                                    </Text>
-                                </Text>
-                                <View style={styles.inputContainer}>
-                                    <MaterialIcons
-                                        name="access-time"
-                                        size={20}
-                                        color="#667eea"
-                                        style={styles.inputIcon}
-                                    />
-                                    <TextInput
-                                        style={styles.input}
-                                        placeholder="HH:MM"
-                                        placeholderTextColor="#a0a0a0"
-                                        value={newFollowUp.time}
-                                        onChangeText={(text) =>
-                                            setNewFollowUp({
-                                                ...newFollowUp,
-                                                time: text,
-                                            })
-                                        }
-                                    />
-                                </View>
-                            </View>
-
-                            {/* Type */}
-                            <View style={styles.fieldGroup}>
-                                <Text style={styles.label}>Follow-up Type</Text>
-                                <View style={styles.typeSelector}>
-                                    {[
-                                        "Call",
-                                        "WhatsApp",
-                                        "Visit",
-                                        "Demo",
-                                        "Discussion",
-                                    ].map((type) => (
-                                        <TouchableOpacity
-                                            key={type}
-                                            style={[
-                                                styles.typeOption,
-                                                newFollowUp.type === type &&
-                                                    styles.typeOptionActive,
-                                            ]}
-                                            onPress={() =>
-                                                setNewFollowUp({
-                                                    ...newFollowUp,
-                                                    type,
-                                                })
-                                            }>
-                                            <Text
-                                                style={[
-                                                    styles.typeOptionText,
-                                                    newFollowUp.type === type &&
-                                                        styles.typeOptionTextActive,
-                                                ]}>
-                                                {type}
-                                            </Text>
-                                        </TouchableOpacity>
-                                    ))}
-                                </View>
-                            </View>
-
-                            {/* Remarks */}
-                            <View style={styles.fieldGroup}>
-                                <Text style={styles.label}>
-                                    Remarks / Discussion Notes{" "}
-                                    <Text style={styles.required}>*</Text>
-                                </Text>
-                                <View style={styles.inputContainer}>
-                                    <MaterialIcons
-                                        name="note"
-                                        size={20}
-                                        color="#667eea"
-                                        style={styles.inputIcon}
-                                    />
-                                    <TextInput
+                                <View
+                                    style={[
+                                        styles.badge,
+                                        { backgroundColor: colors.bg },
+                                    ]}>
+                                    <Text
                                         style={[
-                                            styles.input,
-                                            styles.multilineInput,
-                                        ]}
-                                        placeholder="What was discussed..."
-                                        placeholderTextColor="#a0a0a0"
-                                        value={newFollowUp.remarks}
-                                        onChangeText={(text) =>
-                                            setNewFollowUp({
-                                                ...newFollowUp,
-                                                remarks: text,
-                                            })
-                                        }
-                                        multiline
-                                        numberOfLines={4}
-                                    />
-                                </View>
-                            </View>
-
-                            {/* Next Action */}
-                            <View style={styles.fieldGroup}>
-                                <Text style={styles.label}>Next Action</Text>
-                                <View style={styles.typeSelector}>
-                                    {[
-                                        "Interested",
-                                        "Need Time",
-                                        "Not Interested",
-                                        "Converted",
-                                    ].map((action) => (
-                                        <TouchableOpacity
-                                            key={action}
-                                            style={[
-                                                styles.typeOption,
-                                                newFollowUp.nextAction ===
-                                                    action &&
-                                                    styles.typeOptionActive,
-                                            ]}
-                                            onPress={() =>
-                                                setNewFollowUp({
-                                                    ...newFollowUp,
-                                                    nextAction: action,
-                                                })
-                                            }>
-                                            <Text
-                                                style={[
-                                                    styles.typeOptionText,
-                                                    newFollowUp.nextAction ===
-                                                        action &&
-                                                        styles.typeOptionTextActive,
-                                                ]}>
-                                                {action}
-                                            </Text>
-                                        </TouchableOpacity>
-                                    ))}
-                                </View>
-                            </View>
-
-                            {/* Action Buttons */}
-                            <View style={styles.formButtons}>
-                                <LinearGradient
-                                    colors={["#667eea", "#764ba2"]}
-                                    style={[
-                                        styles.formButtonGradient,
-                                        styles.flex1,
-                                    ]}>
-                                    <TouchableOpacity
-                                        style={styles.formButton}
-                                        onPress={addFollowUp}>
-                                        <MaterialIcons
-                                            name="save"
-                                            size={20}
-                                            color="#fff"
-                                            style={styles.buttonIcon}
-                                        />
-                                        <Text style={styles.formButtonText}>
-                                            Save Follow-up
-                                        </Text>
-                                    </TouchableOpacity>
-                                </LinearGradient>
-
-                                <LinearGradient
-                                    colors={["#ff6b6b", "#cc0000"]}
-                                    style={[
-                                        styles.formButtonGradient,
-                                        styles.flex1,
-                                    ]}>
-                                    <TouchableOpacity
-                                        style={styles.formButton}
-                                        onPress={() => {
-                                            setShowForm(false);
-                                            resetForm();
-                                        }}>
-                                        <MaterialIcons
-                                            name="close"
-                                            size={20}
-                                            color="#fff"
-                                            style={styles.buttonIcon}
-                                        />
-                                        <Text style={styles.formButtonText}>
-                                            Cancel
-                                        </Text>
-                                    </TouchableOpacity>
-                                </LinearGradient>
-                            </View>
-                        </Animated.View>
-                    </ScrollView>
-                </LinearGradient>
-            </Modal>
-
-            {/* Follow-up Detail Modal */}
-            <Modal
-                visible={selectedFollowUp !== null}
-                transparent
-                animationType="fade"
-                onRequestClose={() => setSelectedFollowUp(null)}>
-                <View style={styles.detailOverlay}>
-                    <LinearGradient
-                        colors={["#0f0f23", "#1a1a2e"]}
-                        style={styles.detailCard}>
-                        <TouchableOpacity
-                            style={styles.detailCloseButton}
-                            onPress={() => setSelectedFollowUp(null)}>
-                            <MaterialIcons
-                                name="close"
-                                size={28}
-                                color="#fff"
-                            />
-                        </TouchableOpacity>
-
-                        {selectedFollowUp && (
-                            <ScrollView style={styles.detailContent}>
-                                <View style={styles.detailHeader}>
-                                    <Text style={styles.detailTitle}>
-                                        Follow-up Details
+                                            styles.badgeText,
+                                            { color: colors.text },
+                                        ]}>
+                                        {item.nextAction}
                                     </Text>
                                 </View>
+                            </View>
 
-                                <View style={styles.detailItemContainer}>
-                                    <View style={styles.detailItemRow}>
-                                        <Text style={styles.detailItemLabel}>
-                                            Enquiry ID
-                                        </Text>
-                                        <Text style={styles.detailItemValue}>
-                                            {selectedFollowUp.enquiryId}
-                                        </Text>
-                                    </View>
+                            <View style={styles.listBody}>
+                                <View style={styles.rowIcon}>
+                                    <Ionicons
+                                        name="calendar-outline"
+                                        size={16}
+                                        color="#64748b"
+                                    />
+                                    <Text style={styles.bodyText}>
+                                        {item.date} at {item.time || "--:--"}
+                                    </Text>
+                                </View>
+                                <View style={styles.rowIcon}>
+                                    <Ionicons
+                                        name="call-outline"
+                                        size={16}
+                                        color="#64748b"
+                                    />
+                                    <Text style={styles.bodyText}>
+                                        {item.type}
+                                    </Text>
+                                </View>
+                                <Text
+                                    style={styles.remarksText}
+                                    numberOfLines={2}>
+                                    "{item.remarks}"
+                                </Text>
+                            </View>
 
-                                    <View style={styles.detailItemRow}>
-                                        <Text style={styles.detailItemLabel}>
-                                            Customer
-                                        </Text>
-                                        <Text style={styles.detailItemValue}>
-                                            {selectedFollowUp.customerName}
-                                        </Text>
-                                    </View>
+                            <View style={styles.listFooter}>
+                                <TouchableOpacity style={styles.actionIcon}>
+                                    <Ionicons
+                                        name="eye-outline"
+                                        size={20}
+                                        color="#64748b"
+                                    />
+                                </TouchableOpacity>
+                                <TouchableOpacity style={styles.actionIcon}>
+                                    <Ionicons
+                                        name="create-outline"
+                                        size={20}
+                                        color="#f59e0b"
+                                    />
+                                </TouchableOpacity>
+                                <TouchableOpacity style={styles.actionIcon}>
+                                    <Ionicons
+                                        name="trash-outline"
+                                        size={20}
+                                        color="#ef4444"
+                                    />
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+                    );
+                }}
+            />
 
-                                    <View style={styles.detailItemRow}>
-                                        <Text style={styles.detailItemLabel}>
-                                            Mobile
-                                        </Text>
-                                        <Text style={styles.detailItemValue}>
-                                            {selectedFollowUp.mobileNumber}
-                                        </Text>
-                                    </View>
+            {/* Floating Action Button for quick add if needed, sticking to module reqs */}
+        </View>
+    );
 
-                                    <View style={styles.detailItemRow}>
-                                        <Text style={styles.detailItemLabel}>
-                                            Product
-                                        </Text>
-                                        <Text style={styles.detailItemValue}>
-                                            {selectedFollowUp.productName}
-                                        </Text>
-                                    </View>
+    const EnquiryList = () => (
+        <View style={{ flex: 1 }}>
+            <TopBar title="Enquiry Management" />
 
-                                    <View style={styles.detailItemRow}>
-                                        <Text style={styles.detailItemLabel}>
-                                            Date & Time
-                                        </Text>
-                                        <Text style={styles.detailItemValue}>
-                                            {selectedFollowUp.date}
-                                            {selectedFollowUp.time &&
-                                                ` ${selectedFollowUp.time}`}
-                                        </Text>
-                                    </View>
+            <View style={styles.searchBar}>
+                <Ionicons name="search" size={20} color="#94a3b8" />
+                <TextInput
+                    placeholder="Search Enquiries..."
+                    style={styles.searchInput}
+                />
+            </View>
 
-                                    <View style={styles.detailItemRow}>
-                                        <Text style={styles.detailItemLabel}>
-                                            Type
-                                        </Text>
-                                        <Text style={styles.detailItemValue}>
-                                            {selectedFollowUp.type}
-                                        </Text>
-                                    </View>
+            <FlatList
+                data={enquiries}
+                keyExtractor={(item) => item.id.toString()}
+                contentContainerStyle={{ padding: 15 }}
+                renderItem={({ item }) => {
+                    const colors = getStatusColor(item.status);
+                    return (
+                        <View style={styles.listCard}>
+                            <View style={styles.listHeader}>
+                                <Text style={styles.enqNo}>{item.enqNo}</Text>
+                                <View
+                                    style={[
+                                        styles.badge,
+                                        { backgroundColor: colors.bg },
+                                    ]}>
+                                    <Text
+                                        style={[
+                                            styles.badgeText,
+                                            { color: colors.text },
+                                        ]}>
+                                        {item.status}
+                                    </Text>
+                                </View>
+                            </View>
+                            <Text style={styles.mainName}>{item.name}</Text>
+                            <Text style={styles.subText}>
+                                {item.product} • ₹{item.value}
+                            </Text>
 
-                                    <View style={styles.detailItemRow}>
-                                        <Text style={styles.detailItemLabel}>
-                                            Next Action
-                                        </Text>
-                                        <Text style={styles.detailItemValue}>
-                                            {selectedFollowUp.nextAction}
-                                        </Text>
-                                    </View>
+                            <View style={styles.listFooter}>
+                                <TouchableOpacity
+                                    style={styles.btnSmall}
+                                    onPress={() => handleStartFollowUp(item)}>
+                                    <Ionicons
+                                        name="timer-outline"
+                                        size={16}
+                                        color="#2563eb"
+                                    />
+                                    <Text style={styles.btnSmallText}>
+                                        Follow-up
+                                    </Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity style={styles.actionIcon}>
+                                    <Ionicons
+                                        name="create-outline"
+                                        size={20}
+                                        color="#64748b"
+                                    />
+                                </TouchableOpacity>
+                                <TouchableOpacity style={styles.actionIcon}>
+                                    <Ionicons
+                                        name="trash-outline"
+                                        size={20}
+                                        color="#ef4444"
+                                    />
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+                    );
+                }}
+            />
 
-                                    <View style={styles.detailItemRow}>
-                                        <Text style={styles.detailItemLabel}>
-                                            Status
-                                        </Text>
-                                        <View
-                                            style={[
-                                                styles.statusBadgeDetail,
-                                                {
-                                                    backgroundColor:
-                                                        selectedFollowUp.status ===
-                                                        "Pending"
-                                                            ? "rgba(255,193,7,0.2)"
-                                                            : "rgba(40,167,69,0.2)",
-                                                },
-                                            ]}>
-                                            <Text
-                                                style={{
-                                                    color:
-                                                        selectedFollowUp.status ===
-                                                        "Pending"
-                                                            ? "#ffc107"
-                                                            : "#28a745",
-                                                    fontWeight: "600",
-                                                }}>
-                                                {selectedFollowUp.status}
-                                            </Text>
-                                        </View>
-                                    </View>
+            <TouchableOpacity
+                style={styles.fab}
+                onPress={() =>
+                    Alert.alert("Module 1", "Add Enquiry Form here")
+                }>
+                <Ionicons name="add" size={24} color="white" />
+            </TouchableOpacity>
+        </View>
+    );
 
-                                    {selectedFollowUp.remarks && (
-                                        <View
-                                            style={[
-                                                styles.detailItemRow,
-                                                styles.remarksContainer,
-                                            ]}>
-                                            <Text
-                                                style={styles.detailItemLabel}>
-                                                Discussion Notes
-                                            </Text>
-                                            <Text
-                                                style={[
-                                                    styles.detailItemValue,
-                                                    styles.remarksValue,
-                                                ]}>
-                                                {selectedFollowUp.remarks}
-                                            </Text>
-                                        </View>
+    // --- RENDER ---
+    return (
+        <SafeAreaView style={styles.container}>
+            <StatusBar barStyle="light-content" />
+
+            {/* Main Content Router */}
+            {screen === "ENQUIRY_LIST" && <EnquiryList />}
+            {screen === "ADD_FOLLOWUP" && <FollowUpForm />}
+            {screen === "MY_FOLLOWUPS" && <MyFollowUpsList />}
+
+            {/* --- IMPORT PREVIEW MODAL --- */}
+            <Modal visible={showImportModal} transparent animationType="slide">
+                <View style={styles.modalOverlay}>
+                    <View style={styles.modalContainer}>
+                        <View style={styles.modalHeader}>
+                            <Text style={styles.modalTitle}>
+                                Preview Import
+                            </Text>
+                            <TouchableOpacity
+                                onPress={() => setShowImportModal(false)}>
+                                <Ionicons name="close" size={24} color="#333" />
+                            </TouchableOpacity>
+                        </View>
+
+                        <Text style={styles.helperText}>
+                            Rows with errors are highlighted in red.
+                        </Text>
+
+                        <ScrollView style={{ flex: 1, width: "100%" }}>
+                            {importDataPreview.map((row, idx) => (
+                                <View
+                                    key={idx}
+                                    style={[
+                                        styles.importRow,
+                                        row.error && {
+                                            backgroundColor: "#fee2e2",
+                                            borderColor: "#ef4444",
+                                        },
+                                    ]}>
+                                    <Text style={styles.importCell}>
+                                        {row.enqNo}
+                                    </Text>
+                                    <Text style={styles.importCell}>
+                                        {row.name}
+                                    </Text>
+                                    <Text style={styles.importCell}>
+                                        {row.mobile}
+                                    </Text>
+                                    {row.error && (
+                                        <Ionicons
+                                            name="warning"
+                                            size={16}
+                                            color="red"
+                                        />
                                     )}
                                 </View>
-                            </ScrollView>
-                        )}
-                    </LinearGradient>
+                            ))}
+                        </ScrollView>
+
+                        <View style={styles.modalFooter}>
+                            <TouchableOpacity
+                                style={styles.btnModalSecondary}
+                                onPress={() => setShowImportModal(false)}>
+                                <Text>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={styles.btnModalPrimary}
+                                onPress={() => {
+                                    setShowImportModal(false);
+                                    Alert.alert("Import", "Valid data saved!");
+                                }}>
+                                <Text
+                                    style={{
+                                        color: "white",
+                                        fontWeight: "bold",
+                                    }}>
+                                    Save Valid Rows
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
                 </View>
             </Modal>
-        </LinearGradient>
+
+            {/* --- EXPORT MODAL --- */}
+            <Modal visible={showExportModal} transparent animationType="fade">
+                <View style={styles.modalOverlay}>
+                    <View style={styles.smallModal}>
+                        <Text style={styles.modalTitle}>Export Options</Text>
+
+                        <View style={styles.exportOption}>
+                            <Text style={styles.exportLabel}>Date Range</Text>
+                            <View style={styles.rowInputs}>
+                                <TextInput
+                                    style={[styles.input, { flex: 1 }]}
+                                    placeholder="From"
+                                />
+                                <TextInput
+                                    style={[styles.input, { flex: 1 }]}
+                                    placeholder="To"
+                                />
+                            </View>
+                        </View>
+
+                        <View style={styles.exportOption}>
+                            <Text style={styles.exportLabel}>Type</Text>
+                            <View style={styles.chipContainer}>
+                                <TouchableOpacity style={styles.chip}>
+                                    <Text style={styles.chipText}>
+                                        Enquiries
+                                    </Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={[styles.chip, styles.chipActive]}>
+                                    <Text
+                                        style={[
+                                            styles.chipText,
+                                            styles.chipTextActive,
+                                        ]}>
+                                        Follow-ups
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+
+                        <View style={styles.modalFooter}>
+                            <TouchableOpacity
+                                style={styles.btnModalSecondary}
+                                onPress={() => setShowExportModal(false)}>
+                                <Text>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={styles.btnModalPrimary}
+                                onPress={() => {
+                                    setShowExportModal(false);
+                                    Alert.alert(
+                                        "Export",
+                                        "File downloaded as Excel",
+                                    );
+                                }}>
+                                <Text
+                                    style={{
+                                        color: "white",
+                                        fontWeight: "bold",
+                                    }}>
+                                    Export
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
+        </SafeAreaView>
     );
 }
 
+// --- STYLES ---
 const styles = StyleSheet.create({
-    // Container
-    container: {
-        flex: 1,
-    },
-    scrollContainer: {
-        flex: 1,
-        padding: 16,
-    },
+    container: { flex: 1, backgroundColor: "#f8fafc" },
 
-    // Header Section
-    headerSection: {
-        alignItems: "center",
-        marginBottom: 32,
-        paddingVertical: 16,
-    },
-    headerIcon: {
-        marginBottom: 12,
-    },
-    title: {
-        fontSize: 28,
-        fontWeight: "700",
-        color: "#fff",
-        marginBottom: 4,
-        textAlign: "center",
-    },
-    subtitle: {
-        fontSize: 14,
-        color: "#a0a0a0",
-        textAlign: "center",
-    },
-
-    // Button Container
-    buttonContainer: {
-        marginBottom: 24,
-    },
-    addButtonGradient: {
-        borderRadius: 12,
-        shadowColor: "#667eea",
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 8,
-        elevation: 6,
-    },
-    addButton: {
-        height: 52,
-        flexDirection: "row",
-        justifyContent: "center",
-        alignItems: "center",
-        borderRadius: 12,
-    },
-    addButtonText: {
-        color: "#fff",
-        fontSize: 16,
-        fontWeight: "600",
-        marginLeft: 8,
-    },
-
-    // List Container
-    listContainer: {
-        marginBottom: 32,
-    },
-    listHeader: {
-        marginBottom: 16,
-    },
-    listTitle: {
-        fontSize: 18,
-        fontWeight: "600",
-        color: "#fff",
-        marginBottom: 12,
-    },
-    statsRow: {
-        flexDirection: "row",
-        justifyContent: "space-around",
-    },
-    statItem: {
-        flex: 1,
-        backgroundColor: "rgba(102, 126, 234, 0.1)",
-        borderRadius: 8,
-        padding: 12,
-        marginHorizontal: 6,
-        alignItems: "center",
-        borderWidth: 1,
-        borderColor: "rgba(102, 126, 234, 0.2)",
-    },
-    statLabel: {
-        fontSize: 12,
-        color: "#a0a0a0",
-        marginBottom: 4,
-    },
-    statValue: {
-        fontSize: 20,
-        fontWeight: "700",
-        color: "#667eea",
-    },
-    list: {
-        flex: 1,
-    },
-
-    // Empty State
-    emptyState: {
-        alignItems: "center",
-        justifyContent: "center",
-        paddingVertical: 60,
-    },
-    emptyStateText: {
-        fontSize: 18,
-        fontWeight: "600",
-        color: "#fff",
-        marginTop: 16,
-        textAlign: "center",
-    },
-    emptyStateSubtext: {
-        fontSize: 14,
-        color: "#a0a0a0",
-        marginTop: 8,
-        textAlign: "center",
-    },
-
-    // Follow-up Item
-    followUpItem: {
-        borderRadius: 12,
-        padding: 16,
-        marginBottom: 12,
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.1)",
-        overflow: "hidden",
-    },
-    followUpContent: {
-        marginBottom: 12,
-    },
-    followUpHeader: {
-        flexDirection: "row",
-        alignItems: "center",
-        marginBottom: 12,
-    },
-    headerContent: {
-        flex: 1,
-        marginLeft: 12,
-    },
-    customerName: {
-        fontSize: 16,
-        fontWeight: "600",
-        color: "#fff",
-        marginBottom: 2,
-    },
-    enquiryId: {
-        fontSize: 12,
-        color: "#a0a0a0",
-    },
-    statusBadge: {
-        paddingHorizontal: 10,
-        paddingVertical: 4,
-        borderRadius: 6,
-        backgroundColor: "rgba(255,255,255,0.1)",
-    },
-    statusText: {
-        fontSize: 12,
-        fontWeight: "600",
-    },
-
-    // Follow-up Details
-    followUpDetails: {
-        marginLeft: 36,
-        marginBottom: 12,
-    },
-    detailRow: {
-        flexDirection: "row",
-        alignItems: "flex-start",
-        marginBottom: 8,
-    },
-    detailText: {
-        fontSize: 13,
-        color: "#a0a0a0",
-        marginLeft: 8,
-        flex: 1,
-    },
-    remarksText: {
-        color: "#b0b0b0",
-        fontStyle: "italic",
-    },
-    actionRow: {
-        flexDirection: "row",
-        marginTop: 8,
-    },
-    actionBadge: {
-        backgroundColor: "rgba(102, 126, 234, 0.2)",
-        paddingHorizontal: 10,
-        paddingVertical: 6,
-        borderRadius: 6,
-        borderWidth: 1,
-        borderColor: "rgba(102, 126, 234, 0.4)",
-    },
-    actionLabel: {
-        fontSize: 12,
-        fontWeight: "600",
-        color: "#667eea",
-    },
-
-    // Follow-up Actions
-    followUpActions: {
+    // Top Bar
+    topBar: {
+        backgroundColor: "#2563eb",
+        paddingVertical: 15,
+        paddingHorizontal: 15,
         flexDirection: "row",
         justifyContent: "space-between",
         alignItems: "center",
-        paddingTop: 12,
-        borderTopWidth: 1,
-        borderTopColor: "rgba(255,255,255,0.1)",
     },
-    actionButtonGradient: {
-        borderRadius: 8,
-        flex: 1,
-        marginRight: 8,
-    },
-    actionButton: {
-        height: 40,
-        flexDirection: "row",
-        justifyContent: "center",
-        alignItems: "center",
-        borderRadius: 8,
-    },
-    actionButtonText: {
-        color: "#fff",
-        fontSize: 12,
-        fontWeight: "600",
-        marginLeft: 6,
-    },
-    deleteButton: {
-        width: 44,
-        height: 40,
-        justifyContent: "center",
-        alignItems: "center",
-        borderRadius: 8,
-        backgroundColor: "rgba(255,107,107,0.1)",
-        borderWidth: 1,
-        borderColor: "rgba(255,107,107,0.2)",
-    },
+    topBarLeft: { flexDirection: "row", alignItems: "center" },
+    topBarTitle: { color: "#fff", fontSize: 18, fontWeight: "bold" },
+    topBarRight: { flexDirection: "row" },
+    iconBtn: { marginLeft: 15 },
 
-    // Modal
-    modalContainer: {
-        flex: 1,
-        justifyContent: "flex-end",
-    },
-    modalContent: {
-        flex: 1,
-        paddingTop: 16,
-        paddingHorizontal: 16,
-        paddingBottom: 40,
-    },
-    closeButton: {
-        alignSelf: "flex-end",
-        padding: 12,
-        marginBottom: 12,
-    },
-    formContainer: {
-        marginBottom: 24,
-    },
-    formHeader: {
+    // Common List
+    searchBar: {
         flexDirection: "row",
         alignItems: "center",
-        marginBottom: 24,
+        backgroundColor: "#fff",
+        margin: 15,
+        padding: 10,
+        borderRadius: 10,
+        shadowColor: "#000",
+        shadowOpacity: 0.05,
+        shadowRadius: 5,
     },
-    formHeaderIcon: {
-        marginRight: 12,
+    searchInput: { marginLeft: 10, flex: 1 },
+    listCard: {
+        backgroundColor: "#fff",
+        borderRadius: 12,
+        padding: 15,
+        marginBottom: 15,
+        shadowColor: "#000",
+        shadowOpacity: 0.05,
+        shadowRadius: 3,
+        elevation: 2,
     },
-    formTitle: {
-        fontSize: 22,
-        fontWeight: "700",
-        color: "#fff",
-    },
-
-    // Form Fields
-    fieldGroup: {
-        marginBottom: 20,
-    },
-    label: {
-        fontSize: 14,
-        fontWeight: "600",
-        color: "#fff",
+    listHeader: {
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
         marginBottom: 8,
     },
-    required: {
-        color: "#ff6b6b",
-        fontWeight: "700",
+    enqNo: { fontWeight: "bold", color: "#1e293b" },
+    badge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
+    badgeText: { fontSize: 11, fontWeight: "bold" },
+    mainName: { fontSize: 16, fontWeight: "600", color: "#334155" },
+    subText: { fontSize: 13, color: "#64748b", marginTop: 2 },
+    listFooter: {
+        flexDirection: "row",
+        justifyContent: "flex-end",
+        alignItems: "center",
+        marginTop: 10,
+        borderTopWidth: 1,
+        borderTopColor: "#f1f5f9",
+        paddingTop: 10,
     },
-    optional: {
-        color: "#a0a0a0",
-        fontWeight: "400",
+    btnSmall: {
+        flexDirection: "row",
+        backgroundColor: "#eff6ff",
+        paddingVertical: 6,
+        paddingHorizontal: 12,
+        borderRadius: 6,
+        marginRight: "auto",
+    },
+    btnSmallText: {
+        color: "#2563eb",
         fontSize: 12,
+        fontWeight: "bold",
+        marginLeft: 4,
     },
-    inputContainer: {
-        flexDirection: "row",
-        alignItems: "center",
-        backgroundColor: "rgba(102, 126, 234, 0.1)",
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: "rgba(102, 126, 234, 0.2)",
-        paddingHorizontal: 12,
-        height: 44,
-    },
-    inputIcon: {
-        marginRight: 12,
-    },
-    input: {
-        flex: 1,
-        color: "#fff",
-        fontSize: 14,
-        fontWeight: "500",
-    },
-    multilineInput: {
-        height: 120,
-        paddingVertical: 12,
-        textAlignVertical: "top",
-    },
-
-    // Type/Action Selector
-    typeSelector: {
-        flexDirection: "row",
-        flexWrap: "wrap",
-        gap: 8,
-    },
-    typeOption: {
-        flex: 1,
-        minWidth: "45%",
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: "rgba(102, 126, 234, 0.2)",
-        backgroundColor: "rgba(102, 126, 234, 0.05)",
-        paddingVertical: 10,
-        paddingHorizontal: 12,
-        alignItems: "center",
+    actionIcon: { padding: 6, marginLeft: 5 },
+    fab: {
+        position: "absolute",
+        bottom: 25,
+        right: 20,
+        backgroundColor: "#10b981",
+        width: 56,
+        height: 56,
+        borderRadius: 28,
         justifyContent: "center",
-    },
-    typeOptionActive: {
-        backgroundColor: "rgba(102, 126, 234, 0.3)",
-        borderColor: "rgba(102, 126, 234, 0.6)",
-    },
-    typeOptionText: {
-        fontSize: 13,
-        fontWeight: "600",
-        color: "#a0a0a0",
-    },
-    typeOptionTextActive: {
-        color: "#667eea",
-    },
-
-    // Form Buttons
-    formButtons: {
-        flexDirection: "row",
-        gap: 12,
-        marginTop: 24,
-    },
-    flex1: {
-        flex: 1,
-    },
-    formButtonGradient: {
-        borderRadius: 8,
+        alignItems: "center",
+        elevation: 5,
         shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.2,
-        shadowRadius: 4,
-        elevation: 3,
-    },
-    formButton: {
-        height: 44,
-        flexDirection: "row",
-        justifyContent: "center",
-        alignItems: "center",
-        borderRadius: 8,
-    },
-    formButtonText: {
-        color: "#fff",
-        fontSize: 14,
-        fontWeight: "600",
-        marginLeft: 8,
-    },
-    buttonIcon: {
-        marginRight: 0,
+        shadowOpacity: 0.3,
     },
 
-    // Detail Modal
-    detailOverlay: {
-        flex: 1,
-        backgroundColor: "rgba(0,0,0,0.6)",
-        justifyContent: "center",
-        alignItems: "center",
-        padding: 16,
+    // Form
+    formContainer: { flex: 1, padding: 15, paddingBottom: 100 },
+    card: {
+        backgroundColor: "#fff",
+        borderRadius: 12,
+        padding: 15,
+        marginBottom: 15,
+        shadowColor: "#000",
+        shadowOpacity: 0.05,
+        elevation: 1,
     },
-    detailCard: {
-        borderRadius: 16,
-        padding: 20,
-        maxHeight: "80%",
-        width: "100%",
-        borderWidth: 1,
-        borderColor: "rgba(102, 126, 234, 0.2)",
-    },
-    detailCloseButton: {
-        alignSelf: "flex-end",
-        padding: 8,
-        marginBottom: 12,
-    },
-    detailContent: {
-        flex: 1,
-    },
-    detailHeader: {
-        alignItems: "center",
-        marginBottom: 20,
-        paddingBottom: 12,
-        borderBottomWidth: 1,
-        borderBottomColor: "rgba(255,255,255,0.1)",
-    },
-    detailTitle: {
-        fontSize: 20,
-        fontWeight: "700",
-        color: "#fff",
-    },
-    detailItemContainer: {
-        gap: 12,
-    },
-    detailItemRow: {
-        paddingVertical: 12,
-        paddingHorizontal: 12,
-        backgroundColor: "rgba(102, 126, 234, 0.05)",
-        borderRadius: 8,
-        borderLeftWidth: 3,
-        borderLeftColor: "#667eea",
-    },
-    detailItemLabel: {
-        fontSize: 12,
-        fontWeight: "600",
-        color: "#a0a0a0",
-        marginBottom: 4,
+    cardHeaderLabel: {
+        fontSize: 14,
+        fontWeight: "bold",
+        color: "#64748b",
+        marginBottom: 10,
         textTransform: "uppercase",
     },
-    detailItemValue: {
+    inputGroup: { marginBottom: 12 },
+    label: {
+        fontSize: 13,
+        fontWeight: "600",
+        color: "#334155",
+        marginBottom: 6,
+    },
+    input: {
+        backgroundColor: "#f8fafc",
+        borderWidth: 1,
+        borderColor: "#e2e8f0",
+        borderRadius: 8,
+        padding: 12,
         fontSize: 14,
-        fontWeight: "500",
-        color: "#fff",
+        color: "#334155",
     },
-    statusBadgeDetail: {
-        alignSelf: "flex-start",
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 6,
-        marginTop: 4,
+    inputReadOnly: { backgroundColor: "#f1f5f9", color: "#94a3b8" },
+    rowInputs: { flexDirection: "row", gap: 10 },
+
+    // Chips (Radio)
+    chipContainer: {
+        flexDirection: "row",
+        gap: 10,
+        marginBottom: 15,
+        flexWrap: "wrap",
     },
-    remarksContainer: {
-        borderLeftColor: "#764ba2",
+    chip: {
+        backgroundColor: "#f1f5f9",
+        paddingVertical: 8,
+        paddingHorizontal: 16,
+        borderRadius: 20,
+        borderWidth: 1,
+        borderColor: "transparent",
     },
-    remarksValue: {
+    chipActive: { backgroundColor: "#eff6ff", borderColor: "#2563eb" },
+    chipText: { color: "#64748b", fontSize: 13, fontWeight: "500" },
+    chipTextActive: { color: "#2563eb", fontWeight: "bold" },
+    chipSmall: { paddingVertical: 6, paddingHorizontal: 12 },
+
+    // Toggle Switch
+    switchRow: {
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
+        marginVertical: 10,
+    },
+    toggle: {
+        width: 60,
+        height: 30,
+        borderRadius: 15,
+        justifyContent: "center",
+        alignItems: "center",
+        padding: 2,
+    },
+    toggleInactive: { backgroundColor: "#cbd5e1" },
+    toggleActive: { backgroundColor: "#10b981" },
+    toggleText: { fontSize: 12, fontWeight: "bold", color: "#fff" },
+
+    // Buttons
+    stickyButtons: { flexDirection: "row", gap: 10, marginTop: 10 },
+    btnCancel: {
+        flex: 1,
+        backgroundColor: "#f1f5f9",
+        padding: 15,
+        borderRadius: 10,
+        alignItems: "center",
+    },
+    btnCancelText: { color: "#64748b", fontWeight: "bold" },
+    btnSave: {
+        flex: 1.2,
+        backgroundColor: "#2563eb",
+        padding: 15,
+        borderRadius: 10,
+        alignItems: "center",
+        flexDirection: "row",
+        justifyContent: "center",
+    },
+    btnSaveText: { color: "#fff", fontWeight: "bold" },
+    btnSaveNext: { backgroundColor: "#10b981" },
+
+    // My Followups Tabs
+    tabsContainer: {
+        flexDirection: "row",
+        backgroundColor: "#fff",
+        paddingVertical: 5,
+        borderBottomWidth: 1,
+        borderBottomColor: "#e2e8f0",
+    },
+    tab: { flex: 1, paddingVertical: 12, alignItems: "center" },
+    tabActive: { borderBottomWidth: 2, borderBottomColor: "#2563eb" },
+    tabText: { color: "#94a3b8", fontSize: 13, fontWeight: "600" },
+    tabTextActive: { color: "#2563eb" },
+    tabIndicator: {
+        position: "absolute",
+        bottom: -1,
+        width: "100%",
+        height: 2,
+        backgroundColor: "#2563eb",
+    },
+
+    // Followup List Item specifics
+    listBody: { marginTop: 8 },
+    rowIcon: { flexDirection: "row", alignItems: "center", marginBottom: 4 },
+    bodyText: { marginLeft: 8, fontSize: 13, color: "#475569" },
+    remarksText: {
+        marginTop: 8,
         fontStyle: "italic",
-        color: "#e0e0e0",
-        lineHeight: 20,
+        color: "#64748b",
+        fontSize: 12,
+        backgroundColor: "#f8fafc",
+        padding: 8,
+        borderRadius: 6,
+    },
+
+    // Modals
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: "rgba(0,0,0,0.5)",
+        justifyContent: "flex-end",
+    },
+    modalContainer: {
+        backgroundColor: "#fff",
+        height: "80%",
+        borderTopLeftRadius: 20,
+        borderTopRightRadius: 20,
+        padding: 20,
+    },
+    smallModal: {
+        backgroundColor: "#fff",
+        margin: 30,
+        borderRadius: 15,
+        padding: 20,
+    },
+    modalHeader: {
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
+        marginBottom: 15,
+    },
+    modalTitle: { fontSize: 18, fontWeight: "bold", color: "#1e293b" },
+    helperText: { fontSize: 12, color: "#ef4444", marginBottom: 10 },
+
+    // Import Preview Rows
+    importRow: {
+        flexDirection: "row",
+        padding: 10,
+        borderBottomWidth: 1,
+        borderBottomColor: "#f1f5f9",
+        alignItems: "center",
+    },
+    importCell: { flex: 1, fontSize: 13, color: "#334155" },
+
+    exportOption: { marginBottom: 20 },
+    exportLabel: {
+        fontSize: 14,
+        fontWeight: "bold",
+        marginBottom: 8,
+        color: "#475569",
+    },
+
+    modalFooter: { flexDirection: "row", gap: 10, marginTop: 20 },
+    btnModalSecondary: {
+        flex: 1,
+        padding: 12,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: "#e2e8f0",
+        alignItems: "center",
+    },
+    btnModalPrimary: {
+        flex: 1,
+        padding: 12,
+        borderRadius: 8,
+        backgroundColor: "#2563eb",
+        alignItems: "center",
     },
 });

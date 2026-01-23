@@ -1,2325 +1,794 @@
 import React, { useState, useEffect } from "react";
 import {
-    View,
-    Text,
     StyleSheet,
+    Text,
+    View,
+    TextInput,
     TouchableOpacity,
     FlatList,
-    TextInput,
+    Modal,
     ScrollView,
     Alert,
-    Modal,
+    SafeAreaView,
+    KeyboardAvoidingView,
     Platform,
-    ActivityIndicator,
+    StatusBar,
 } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
-import { MaterialIcons, MaterialCommunityIcons } from "@expo/vector-icons";
-import Animated, { FadeInUp } from "react-native-reanimated";
-import { useAuth } from "../contexts/AuthContext";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import {
-    createEnquiry,
-    getAllEnquiries,
-    deleteEnquiry,
-    updateEnquiry,
-} from "../services/enquiryService";
+import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 
-export default function EnquiryScreen() {
-    const { isLoggedIn } = useAuth();
-    const [enquiries, setEnquiries] = useState([]);
-    const [loggedInUser, setLoggedInUser] = useState("Agent");
-    const [showForm, setShowForm] = useState(false);
-    const [selectedEnquiry, setSelectedEnquiry] = useState(null);
-    const [dropdownOpen, setDropdownOpen] = useState({});
-    const [loading, setLoading] = useState(false);
-    const [loadingEnquiries, setLoadingEnquiries] = useState(true);
-    const [editingEnquiry, setEditingEnquiry] = useState(null);
-    const [showEditForm, setShowEditForm] = useState(false);
-    const [followUps, setFollowUps] = useState([]);
-    const [showFollowUpForm, setShowFollowUpForm] = useState(false);
-    const [newFollowUp, setNewFollowUp] = useState({
+// --- MOCK DATA ---
+const initialEnquiries = [
+    {
+        id: 1,
+        enqNo: "ENQ-001",
+        date: "2023-10-25",
+        name: "John Doe",
+        mobile: "9876543210",
+        product: "Smartphone X",
+        value: "25000",
+        status: "New",
+        source: "Website",
+    },
+    {
+        id: 2,
+        enqNo: "ENQ-002",
+        date: "2023-10-24",
+        name: "Jane Smith",
+        mobile: "9123456789",
+        product: "Laptop Pro",
+        value: "55000",
+        status: "In Progress",
+        source: "Referral",
+    },
+];
+
+// --- MAIN APP COMPONENT ---
+export default function App() {
+    const [screen, setScreen] = useState("list"); // 'list' or 'add'
+    const [enquiries, setEnquiries] = useState(initialEnquiries);
+    const [searchQuery, setSearchQuery] = useState("");
+    const [filterStatus, setFilterStatus] = useState("All");
+
+    // Form State
+    const [formData, setFormData] = useState({
+        enqNo: "",
         date: "",
-        remarks: "",
-        outcome: "",
-    });
-
-    const [newEnquiry, setNewEnquiry] = useState({
-        enquiryNumber: "",
-        enquiryType: "Product Inquiry",
-        leadSource: "Walk-in",
-        customerName: "",
+        enqBy: "Admin User", // Simulating logged-in user
+        enqType: "",
+        source: "",
+        name: "",
+        mobile: "",
+        altMobile: "",
         address: "",
-        mobileNumber: "",
-        alternateMobileNumber: "",
-        productName: "",
-        productCost: "",
-        paymentMethod: "Cash",
-        enquiryDate: new Date().toISOString().split("T")[0],
-        enquiryTakenBy: "",
-        remarks: "",
-        followUpRequired: "No",
-        nextFollowUpDate: "",
-        enquiryStatus: "New",
+        product: "",
+        variant: "",
+        color: "",
+        cost: "",
+        paymentMethod: "",
     });
 
-    // Generate unique enquiry number
-    const generateEnquiryNumber = () => {
-        const timestamp = Date.now().toString().slice(-6);
-        return `ENQ${timestamp}`;
-    };
+    // Modal State
+    const [showFollowUpModal, setShowFollowUpModal] = useState(false);
 
-    // Load logged-in user info and fetch enquiries
+    // --- EFFECTS ---
     useEffect(() => {
-        const loadUserInfoAndEnquiries = async () => {
-            try {
-                const userStr = await AsyncStorage.getItem("user");
-                if (userStr) {
-                    const user = JSON.parse(userStr);
-                    setLoggedInUser(user.name || "Agent");
-                    setNewEnquiry((prev) => ({
-                        ...prev,
-                        enquiryTakenBy: user.name || "Agent",
-                    }));
-                }
-                // Fetch enquiries from API
-                await fetchEnquiries();
-            } catch (error) {
-                console.log("Error loading user info:", error);
-            } finally {
-                setLoadingEnquiries(false);
-            }
-        };
-        loadUserInfoAndEnquiries();
+        // Set initial date for form
+        const today = new Date().toISOString().split("T")[0];
+        setFormData((prev) => ({ ...prev, date: today }));
     }, []);
 
-    // Fetch enquiries from database
-    const fetchEnquiries = async () => {
-        try {
-            setLoadingEnquiries(true);
-            const response = await getAllEnquiries();
-            setEnquiries(response.enquiries || []);
-        } catch (error) {
-            console.error("Error fetching enquiries:", error);
-            Alert.alert("Error", "Failed to load enquiries");
-        } finally {
-            setLoadingEnquiries(false);
-        }
-    };
+    // --- HANDLERS ---
 
-    const saveEnquiry = async () => {
-        // Validation for required fields
-        if (
-            !newEnquiry.customerName ||
-            !newEnquiry.mobileNumber ||
-            !newEnquiry.productName ||
-            !newEnquiry.productCost
-        ) {
-            Alert.alert(
-                "Validation Error",
-                "Please fill in all required fields: Customer Name, Mobile Number, Product Name, and Product Cost",
-            );
-            return;
-        }
-
-        try {
-            setLoading(true);
-            const enquiryNumber = generateEnquiryNumber();
-            const enquiryData = {
-                ...newEnquiry,
-                enquiryNumber: enquiryNumber,
-                enquiryTakenBy: loggedInUser,
-            };
-
-            // Save to database
-            const response = await createEnquiry(enquiryData);
-
-            // Add to local state
-            setEnquiries([...enquiries, response.enquiry]);
-            Alert.alert("Success", "Enquiry saved successfully!");
-            resetForm();
-            setShowForm(false);
-        } catch (error) {
-            console.error("Save enquiry error:", error);
-            Alert.alert(
-                "Error",
-                error.response?.data?.message || "Failed to save enquiry",
-            );
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const saveAndAddFollowUp = async () => {
-        if (
-            !newEnquiry.customerName ||
-            !newEnquiry.mobileNumber ||
-            !newEnquiry.productName ||
-            !newEnquiry.productCost
-        ) {
-            Alert.alert(
-                "Validation Error",
-                "Please fill in all required fields first",
-            );
-            return;
-        }
-
-        try {
-            setLoading(true);
-            const enquiryNumber = generateEnquiryNumber();
-            const enquiryData = {
-                ...newEnquiry,
-                enquiryNumber: enquiryNumber,
-                enquiryTakenBy: loggedInUser,
-            };
-
-            // Save to database
-            const response = await createEnquiry(enquiryData);
-
-            // Add to local state
-            setEnquiries([...enquiries, response.enquiry]);
-            Alert.alert("Success", "Enquiry saved! Now add follow-up details.");
-            resetForm();
-            setShowForm(false);
-            // Navigate to follow-up screen (implement based on your navigation structure)
-        } catch (error) {
-            console.error("Save and add follow-up error:", error);
-            Alert.alert(
-                "Error",
-                error.response?.data?.message || "Failed to save enquiry",
-            );
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleDeleteEnquiry = async (enquiryId) => {
-        try {
-            Alert.alert(
-                "Delete Enquiry",
-                "Are you sure you want to delete this enquiry?",
-                [
-                    { text: "Cancel", style: "cancel" },
-                    {
-                        text: "Delete",
-                        onPress: async () => {
-                            try {
-                                setLoading(true);
-                                await deleteEnquiry(enquiryId);
-                                setEnquiries(
-                                    enquiries.filter((e) => e.id !== enquiryId),
-                                );
-                                Alert.alert(
-                                    "Success",
-                                    "Enquiry deleted successfully!",
-                                );
-                            } catch (error) {
-                                Alert.alert(
-                                    "Error",
-                                    "Failed to delete enquiry",
-                                );
-                            } finally {
-                                setLoading(false);
-                            }
-                        },
-                        style: "destructive",
-                    },
-                ],
-            );
-        } catch (error) {
-            console.error("Delete error:", error);
-        }
-    };
-
-    const handleEditEnquiry = (enquiry) => {
-        setEditingEnquiry(enquiry);
-        setNewEnquiry(enquiry);
-        setShowEditForm(true);
-        setShowForm(false);
-    };
-
-    const handleUpdateEnquiry = async () => {
-        if (
-            !newEnquiry.customerName ||
-            !newEnquiry.mobileNumber ||
-            !newEnquiry.productName ||
-            !newEnquiry.productCost
-        ) {
-            Alert.alert(
-                "Validation Error",
-                "Please fill in all required fields",
-            );
-            return;
-        }
-
-        try {
-            setLoading(true);
-            // Update in database
-            const response = await updateEnquiry(editingEnquiry.id, newEnquiry);
-
-            // Update local state
-            const updatedEnquiries = enquiries.map((e) =>
-                e.id === editingEnquiry.id ? response.enquiry : e,
-            );
-            setEnquiries(updatedEnquiries);
-
-            Alert.alert("Success", "Enquiry updated successfully!");
-            resetForm();
-            setShowEditForm(false);
-            setEditingEnquiry(null);
-        } catch (error) {
-            console.error("Update enquiry error:", error);
-            Alert.alert(
-                "Error",
-                error.response?.data?.message || "Failed to update enquiry",
-            );
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const resetForm = () => {
-        setNewEnquiry({
-            enquiryNumber: "",
-            enquiryType: "Product Inquiry",
-            leadSource: "Walk-in",
-            customerName: "",
+    const handleResetForm = () => {
+        setFormData({
+            enqNo: `ENQ-${String(enquiries.length + 1).padStart(3, "0")}`,
+            date: new Date().toISOString().split("T")[0],
+            enqBy: "Admin User",
+            enqType: "",
+            source: "",
+            name: "",
+            mobile: "",
+            altMobile: "",
             address: "",
-            mobileNumber: "",
-            alternateMobileNumber: "",
-            productName: "",
-            productCost: "",
-            paymentMethod: "Cash",
-            enquiryDate: new Date().toISOString().split("T")[0],
-            enquiryTakenBy: loggedInUser,
-            remarks: "",
-            followUpRequired: "No",
-            nextFollowUpDate: "",
-            enquiryStatus: "New",
+            product: "",
+            variant: "",
+            color: "",
+            cost: "",
+            paymentMethod: "",
         });
     };
 
-    const toggleDropdown = (field) => {
-        setDropdownOpen((prev) => ({
-            ...prev,
-            [field]: !prev[field],
-        }));
+    const handleAddEnquiryPress = () => {
+        handleResetForm();
+        setScreen("add");
     };
 
-    // Follow-up functions
-    const addFollowUp = () => {
-        if (!newFollowUp.date) {
-            Alert.alert("Validation Error", "Please select a follow-up date");
+    const handleSaveEnquiry = () => {
+        // Basic Validation
+        if (
+            !formData.name ||
+            !formData.mobile ||
+            !formData.product ||
+            !formData.cost
+        ) {
+            Alert.alert("Error", "Please fill all required fields (*)");
             return;
         }
 
-        const followUp = {
-            id: Date.now().toString(),
-            enquiryId: selectedEnquiry.id,
-            date: newFollowUp.date,
-            remarks: newFollowUp.remarks,
-            outcome: newFollowUp.outcome || "Pending",
-            status: "Pending",
+        const newEnquiry = {
+            id: Date.now(),
+            enqNo: formData.enqNo,
+            date: formData.date,
+            name: formData.name,
+            mobile: formData.mobile,
+            product: `${formData.product} ${formData.variant || ""}`,
+            value: formData.cost,
+            status: "New",
+            source: formData.source || "Direct",
         };
 
-        setFollowUps([...followUps, followUp]);
-        Alert.alert("Success", "Follow-up added successfully!");
-        resetFollowUpForm();
-        setShowFollowUpForm(false);
+        setEnquiries([newEnquiry, ...enquiries]);
+        setShowFollowUpModal(true); // Show Popup
     };
 
-    const resetFollowUpForm = () => {
-        setNewFollowUp({
-            date: "",
-            remarks: "",
-            outcome: "",
-        });
+    const handleFollowUpResponse = (response) => {
+        setShowFollowUpModal(false);
+        if (response === "no") {
+            setScreen("list");
+        } else {
+            // Logic to navigate to Follow-up screen would go here
+            Alert.alert("Success", "Navigate to Follow-up Screen");
+            setScreen("list");
+        }
     };
 
-    const markFollowUpCompleted = (followUpId) => {
-        setFollowUps(
-            followUps.map((fu) =>
-                fu.id === followUpId
-                    ? { ...fu, status: "Completed", outcome: "Called" }
-                    : fu
-            )
-        );
-    };
-
-    const deleteFollowUp = (followUpId) => {
+    const handleDelete = (id) => {
         Alert.alert(
-            "Delete Follow-up",
-            "Are you sure you want to delete this follow-up?",
+            "Confirm Delete",
+            "Are you sure you want to delete this enquiry?",
             [
                 { text: "Cancel", style: "cancel" },
                 {
                     text: "Delete",
-                    onPress: () => {
-                        setFollowUps(followUps.filter((fu) => fu.id !== followUpId));
-                        Alert.alert("Success", "Follow-up deleted successfully!");
-                    },
                     style: "destructive",
+                    onPress: () =>
+                        setEnquiries(enquiries.filter((e) => e.id !== id)),
                 },
             ],
         );
     };
 
-    const getFollowUpsForEnquiry = () => {
-        return followUps.filter((fu) => fu.enquiryId === selectedEnquiry?.id);
+    // --- RENDERERS ---
+
+    const getStatusColor = (status) => {
+        switch (status) {
+            case "New":
+                return "#dbeafe";
+            case "In Progress":
+                return "#fef3c7";
+            case "Converted":
+                return "#d1fae5";
+            case "Closed":
+                return "#f1f5f9";
+            default:
+                return "#e2e8f0";
+        }
     };
 
-    const DropdownComponent = ({ label, options, value, onChange, field }) => (
-        <View style={styles.dropdownContainer}>
-            <Text style={styles.label}>{label}</Text>
-            <TouchableOpacity
-                style={styles.dropdownButton}
-                onPress={() => toggleDropdown(field)}>
-                <Text style={styles.dropdownButtonText}>{value}</Text>
-                <MaterialIcons
-                    name={
-                        dropdownOpen[field]
-                            ? "arrow-drop-up"
-                            : "arrow-drop-down"
-                    }
-                    size={24}
-                    color="#667eea"
-                />
-            </TouchableOpacity>
-            {dropdownOpen[field] && (
-                <View style={styles.dropdownMenu}>
-                    {options.map((option, index) => (
-                        <TouchableOpacity
-                            key={index}
-                            style={styles.dropdownMenuItem}
-                            onPress={() => {
-                                onChange(option);
-                                toggleDropdown(field);
-                            }}>
-                            <Text style={styles.dropdownMenuItemText}>
-                                {option}
-                            </Text>
-                        </TouchableOpacity>
-                    ))}
+    const getStatusTextColor = (status) => {
+        switch (status) {
+            case "New":
+                return "#1e40af";
+            case "In Progress":
+                return "#92400e";
+            case "Converted":
+                return "#065f46";
+            case "Closed":
+                return "#475569";
+            default:
+                return "#475569";
+        }
+    };
+
+    // --- COMPONENTS ---
+
+    const ListItem = ({ item }) => (
+        <View style={styles.card}>
+            <View style={styles.cardHeader}>
+                <View>
+                    <Text style={styles.enqNo}>{item.enqNo}</Text>
+                    <Text style={styles.date}>{item.date}</Text>
                 </View>
-            )}
+                <View
+                    style={[
+                        styles.badge,
+                        { backgroundColor: getStatusColor(item.status) },
+                    ]}>
+                    <Text
+                        style={[
+                            styles.badgeText,
+                            { color: getStatusTextColor(item.status) },
+                        ]}>
+                        {item.status}
+                    </Text>
+                </View>
+            </View>
+
+            <View style={styles.cardBody}>
+                <View style={styles.row}>
+                    <Text style={styles.label}>Customer:</Text>
+                    <Text style={styles.value}>{item.name}</Text>
+                </View>
+                <View style={styles.row}>
+                    <Text style={styles.label}>Mobile:</Text>
+                    <Text style={styles.value}>{item.mobile}</Text>
+                </View>
+                <View style={styles.row}>
+                    <Text style={styles.label}>Product:</Text>
+                    <Text style={styles.value}>{item.product}</Text>
+                </View>
+                <View style={styles.row}>
+                    <Text style={styles.label}>Lead Value:</Text>
+                    <Text style={styles.valuePrice}>₹{item.value}</Text>
+                </View>
+            </View>
+
+            <View style={styles.cardActions}>
+                <TouchableOpacity style={styles.actionBtn}>
+                    <Ionicons name="eye-outline" size={20} color="#64748b" />
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.actionBtn}>
+                    <Ionicons name="create-outline" size={20} color="#f59e0b" />
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={styles.actionBtn}
+                    onPress={() => handleDelete(item.id)}>
+                    <Ionicons name="trash-outline" size={20} color="#ef4444" />
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.actionBtn}>
+                    <MaterialIcons
+                        name="follow-the-signs"
+                        size={20}
+                        color="#10b981"
+                    />
+                </TouchableOpacity>
+            </View>
         </View>
     );
 
-    const renderEnquiry = ({ item }) => (
-        <View style={styles.enquiryItemWrapper}>
-            <LinearGradient
-                colors={
-                    item.enquiryStatus === "New"
-                        ? ["rgba(102,126,234,0.1)", "rgba(118,75,162,0.1)"]
-                        : item.enquiryStatus === "Interested"
-                          ? ["rgba(255,193,7,0.1)", "rgba(255,152,0,0.1)"]
-                          : item.enquiryStatus === "Converted"
-                            ? ["rgba(40,167,69,0.1)", "rgba(34,197,94,0.1)"]
-                            : ["rgba(220,53,69,0.1)", "rgba(180,30,40,0.1)"]
-                }
-                style={styles.enquiryItem}>
-                <TouchableOpacity
-                    onPress={() => setSelectedEnquiry(item)}
-                    style={styles.enquiryContent}>
-                    <View style={styles.enquiryHeader}>
-                        <MaterialCommunityIcons
-                            name="account"
-                            size={24}
-                            color={
-                                item.enquiryStatus === "New"
-                                    ? "#667eea"
-                                    : item.enquiryStatus === "Interested"
-                                      ? "#ffc107"
-                                      : item.enquiryStatus === "Converted"
-                                        ? "#28a745"
-                                        : "#dc3545"
-                            }
-                        />
-                        <View style={styles.enquiryInfo}>
-                            <Text style={styles.customer}>
-                                {item.customerName}
-                            </Text>
-                            <Text style={styles.enquiryId}>
-                                {item.enquiryNumber}
-                            </Text>
-                        </View>
-                    </View>
-                    <View style={styles.enquiryDetails}>
-                        <View style={styles.detailRow}>
-                            <MaterialIcons
-                                name="shopping-bag"
-                                size={16}
-                                color="#a0a0a0"
-                            />
-                            <Text style={styles.detailText}>
-                                {item.productName}
-                            </Text>
-                        </View>
-                        <View style={styles.detailRow}>
-                            <MaterialIcons
-                                name="phone"
-                                size={16}
-                                color="#a0a0a0"
-                            />
-                            <Text style={styles.detailText}>
-                                {item.mobileNumber}
-                            </Text>
-                        </View>
-                        <View style={styles.detailRow}>
-                            <MaterialIcons
-                                name="schedule"
-                                size={16}
-                                color="#a0a0a0"
-                            />
-                            <Text style={styles.detailText}>
-                                Status: {item.enquiryStatus}
-                            </Text>
-                        </View>
-                    </View>
-                </TouchableOpacity>
-            </LinearGradient>
-            <TouchableOpacity
-                style={styles.deleteButton}
-                onPress={() => handleDeleteEnquiry(item.id)}>
-                <MaterialIcons name="delete" size={18} color="#ff6b6b" />
-            </TouchableOpacity>
+    const FormInput = ({
+        label,
+        value,
+        onChangeText,
+        placeholder,
+        keyboardType = "default",
+        readOnly = false,
+    }) => (
+        <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>
+                {label} <span style={{ color: "red" }}>*</span>
+            </Text>
+            <TextInput
+                style={[styles.input, readOnly && styles.inputReadOnly]}
+                value={value}
+                onChangeText={onChangeText}
+                placeholder={placeholder}
+                keyboardType={keyboardType}
+                editable={!readOnly}
+            />
         </View>
     );
+
+    // --- MAIN RETURN ---
 
     return (
-        <LinearGradient
-            colors={["#0f0f23", "#1a1a2e", "#16213e"]}
-            style={styles.container}>
-            <ScrollView
-                style={styles.scrollContainer}
-                showsVerticalScrollIndicator={false}>
-                <Animated.View
-                    entering={FadeInUp.delay(100)}
-                    style={styles.header}>
-                    <MaterialCommunityIcons
-                        name="account-search"
-                        size={32}
-                        color="#667eea"
-                        style={styles.headerIcon}
-                    />
-                    <Text style={styles.title}>Enquiry Management</Text>
-                    <Text style={styles.subtitle}>
-                        Create and manage customer enquiries
-                    </Text>
-                </Animated.View>
+        <SafeAreaView style={styles.container}>
+            <StatusBar barStyle="light-content" />
 
-                {/* Add New Enquiry Button */}
-                <Animated.View
-                    entering={FadeInUp.delay(150)}
-                    style={styles.buttonContainer}>
-                    <LinearGradient
-                        colors={["#667eea", "#764ba2"]}
-                        style={styles.buttonGradient}>
-                        <TouchableOpacity
-                            style={styles.button}
-                            onPress={() => setShowForm(!showForm)}>
-                            <MaterialCommunityIcons
-                                name="plus"
-                                size={24}
-                                color="#fff"
-                                style={styles.buttonIcon}
-                            />
-                            <Text style={styles.buttonText}>
-                                {showForm ? "Cancel" : "New Enquiry"}
-                            </Text>
-                        </TouchableOpacity>
-                    </LinearGradient>
-                </Animated.View>
-
-                {/* Add New Enquiry Form */}
-                {showForm && (
-                    <Animated.View
-                        entering={FadeInUp.delay(200)}
-                        style={styles.addForm}>
-                        <Text style={styles.formTitle}>Add New Enquiry</Text>
-
-                        {/* Enquiry Number (Auto-Generated) */}
-                        <View style={styles.fieldGroup}>
-                            <Text style={styles.label}>
-                                Enquiry Number{" "}
-                                <Text style={styles.readOnlyBadge}>(Auto)</Text>
-                            </Text>
-                            <TextInput
-                                style={[styles.input, styles.readOnlyInput]}
-                                editable={false}
-                                value={
-                                    newEnquiry.enquiryNumber ||
-                                    generateEnquiryNumber()
-                                }
-                                placeholder="Auto Generated"
-                                placeholderTextColor="#a0a0a0"
-                            />
-                        </View>
-
-                        {/* Enquiry Type */}
-                        <DropdownComponent
-                            label="Enquiry Type"
-                            options={[
-                                "Product Inquiry",
-                                "Service Inquiry",
-                                "General Inquiry",
-                            ]}
-                            value={newEnquiry.enquiryType}
-                            onChange={(value) =>
-                                setNewEnquiry({
-                                    ...newEnquiry,
-                                    enquiryType: value,
-                                })
-                            }
-                            field="enquiryType"
-                        />
-
-                        {/* Lead Source */}
-                        <DropdownComponent
-                            label="Lead Source"
-                            options={[
-                                "Walk-in",
-                                "Phone",
-                                "Email",
-                                "Website",
-                                "Social Media",
-                                "Referral",
-                            ]}
-                            value={newEnquiry.leadSource}
-                            onChange={(value) =>
-                                setNewEnquiry({
-                                    ...newEnquiry,
-                                    leadSource: value,
-                                })
-                            }
-                            field="leadSource"
-                        />
-
-                        {/* Customer Name (Required) */}
-                        <View style={styles.fieldGroup}>
-                            <Text style={styles.label}>
-                                Customer Name{" "}
-                                <Text style={styles.required}>*</Text>
-                            </Text>
-                            <View style={styles.inputContainer}>
-                                <MaterialIcons
-                                    name="person"
-                                    size={20}
-                                    color="#667eea"
-                                    style={styles.inputIcon}
-                                />
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder="Enter customer name"
-                                    placeholderTextColor="#a0a0a0"
-                                    value={newEnquiry.customerName}
-                                    onChangeText={(text) =>
-                                        setNewEnquiry({
-                                            ...newEnquiry,
-                                            customerName: text,
-                                        })
-                                    }
-                                />
-                            </View>
-                        </View>
-
-                        {/* Address */}
-                        <View style={styles.fieldGroup}>
-                            <Text style={styles.label}>Address</Text>
-                            <View style={styles.inputContainer}>
-                                <MaterialIcons
-                                    name="location-on"
-                                    size={20}
-                                    color="#667eea"
-                                    style={styles.inputIcon}
-                                />
-                                <TextInput
-                                    style={[
-                                        styles.input,
-                                        styles.multilineInput,
-                                    ]}
-                                    placeholder="Enter address"
-                                    placeholderTextColor="#a0a0a0"
-                                    value={newEnquiry.address}
-                                    onChangeText={(text) =>
-                                        setNewEnquiry({
-                                            ...newEnquiry,
-                                            address: text,
-                                        })
-                                    }
-                                    multiline
-                                    numberOfLines={3}
-                                />
-                            </View>
-                        </View>
-
-                        {/* Mobile Number (Required) */}
-                        <View style={styles.fieldGroup}>
-                            <Text style={styles.label}>
-                                Mobile Number{" "}
-                                <Text style={styles.required}>*</Text>
-                            </Text>
-                            <View style={styles.inputContainer}>
-                                <MaterialIcons
-                                    name="phone"
-                                    size={20}
-                                    color="#667eea"
-                                    style={styles.inputIcon}
-                                />
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder="Enter mobile number"
-                                    placeholderTextColor="#a0a0a0"
-                                    value={newEnquiry.mobileNumber}
-                                    onChangeText={(text) =>
-                                        setNewEnquiry({
-                                            ...newEnquiry,
-                                            mobileNumber: text,
-                                        })
-                                    }
-                                    keyboardType="phone-pad"
-                                />
-                            </View>
-                        </View>
-
-                        {/* Alternate Mobile Number */}
-                        <View style={styles.fieldGroup}>
-                            <Text style={styles.label}>
-                                Alternate Mobile Number
-                            </Text>
-                            <View style={styles.inputContainer}>
-                                <MaterialIcons
-                                    name="phone"
-                                    size={20}
-                                    color="#667eea"
-                                    style={styles.inputIcon}
-                                />
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder="Enter alternate mobile number"
-                                    placeholderTextColor="#a0a0a0"
-                                    value={newEnquiry.alternateMobileNumber}
-                                    onChangeText={(text) =>
-                                        setNewEnquiry({
-                                            ...newEnquiry,
-                                            alternateMobileNumber: text,
-                                        })
-                                    }
-                                    keyboardType="phone-pad"
-                                />
-                            </View>
-                        </View>
-
-                        {/* Product Name (Required) */}
-                        <View style={styles.fieldGroup}>
-                            <Text style={styles.label}>
-                                Product Name{" "}
-                                <Text style={styles.required}>*</Text>
-                            </Text>
-                            <View style={styles.inputContainer}>
-                                <MaterialIcons
-                                    name="shopping-bag"
-                                    size={20}
-                                    color="#667eea"
-                                    style={styles.inputIcon}
-                                />
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder="Enter product name"
-                                    placeholderTextColor="#a0a0a0"
-                                    value={newEnquiry.productName}
-                                    onChangeText={(text) =>
-                                        setNewEnquiry({
-                                            ...newEnquiry,
-                                            productName: text,
-                                        })
-                                    }
-                                />
-                            </View>
-                        </View>
-
-                        {/* Approximate Product Cost (Required) */}
-                        <View style={styles.fieldGroup}>
-                            <Text style={styles.label}>
-                                Product Cost (Lead Value){" "}
-                                <Text style={styles.required}>*</Text>
-                            </Text>
-                            <View style={styles.inputContainer}>
-                                <MaterialIcons
-                                    name="currency-rupee"
-                                    size={20}
-                                    color="#667eea"
-                                    style={styles.inputIcon}
-                                />
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder="Enter approximate cost"
-                                    placeholderTextColor="#a0a0a0"
-                                    value={newEnquiry.productCost}
-                                    onChangeText={(text) =>
-                                        setNewEnquiry({
-                                            ...newEnquiry,
-                                            productCost: text,
-                                        })
-                                    }
-                                    keyboardType="decimal-pad"
-                                />
-                            </View>
-                        </View>
-
-                        {/* Payment Method */}
-                        <DropdownComponent
-                            label="Payment Method"
-                            options={["Cash", "Credit", "EMI", "Online"]}
-                            value={newEnquiry.paymentMethod}
-                            onChange={(value) =>
-                                setNewEnquiry({
-                                    ...newEnquiry,
-                                    paymentMethod: value,
-                                })
-                            }
-                            field="paymentMethod"
-                        />
-
-                        {/* Enquiry Date (Current Date Only) */}
-                        <View style={styles.fieldGroup}>
-                            <Text style={styles.label}>
-                                Enquiry Date{" "}
-                                <Text style={styles.readOnlyBadge}>
-                                    (Today)
-                                </Text>
-                            </Text>
-                            <TextInput
-                                style={[styles.input, styles.readOnlyInput]}
-                                editable={false}
-                                value={newEnquiry.enquiryDate}
-                                placeholder="Current date"
-                                placeholderTextColor="#a0a0a0"
-                            />
-                        </View>
-
-                        {/* Enquiry Taken By (Auto) */}
-                        <View style={styles.fieldGroup}>
-                            <Text style={styles.label}>
-                                Enquiry Taken By{" "}
-                                <Text style={styles.readOnlyBadge}>(Auto)</Text>
-                            </Text>
-                            <TextInput
-                                style={[styles.input, styles.readOnlyInput]}
-                                editable={false}
-                                value={loggedInUser}
-                                placeholder="Logged-in user"
-                                placeholderTextColor="#a0a0a0"
-                            />
-                        </View>
-
-                        {/* Remarks / Notes */}
-                        <View style={styles.fieldGroup}>
-                            <Text style={styles.label}>
-                                Remarks / Notes{" "}
-                                <Text style={styles.optional}>(Optional)</Text>
-                            </Text>
-                            <View style={styles.inputContainer}>
-                                <MaterialIcons
-                                    name="note"
-                                    size={20}
-                                    color="#667eea"
-                                    style={styles.inputIcon}
-                                />
-                                <TextInput
-                                    style={[
-                                        styles.input,
-                                        styles.multilineInput,
-                                    ]}
-                                    placeholder="Enter any remarks or notes"
-                                    placeholderTextColor="#a0a0a0"
-                                    value={newEnquiry.remarks}
-                                    onChangeText={(text) =>
-                                        setNewEnquiry({
-                                            ...newEnquiry,
-                                            remarks: text,
-                                        })
-                                    }
-                                    multiline
-                                    numberOfLines={3}
-                                />
-                            </View>
-                        </View>
-
-                        <Text style={styles.sectionTitle}>
-                            Follow-up Options
-                        </Text>
-
-                        {/* Follow-up Required */}
-                        <DropdownComponent
-                            label="Follow-up Required"
-                            options={["Yes", "No"]}
-                            value={newEnquiry.followUpRequired}
-                            onChange={(value) =>
-                                setNewEnquiry({
-                                    ...newEnquiry,
-                                    followUpRequired: value,
-                                })
-                            }
-                            field="followUpRequired"
-                        />
-
-                        {/* Next Follow-up Date */}
-                        {newEnquiry.followUpRequired === "Yes" && (
-                            <View style={styles.fieldGroup}>
-                                <Text style={styles.label}>
-                                    Next Follow-up Date
-                                </Text>
-                                <View style={styles.inputContainer}>
-                                    <MaterialIcons
-                                        name="event"
-                                        size={20}
-                                        color="#667eea"
-                                        style={styles.inputIcon}
-                                    />
-                                    <TextInput
-                                        style={styles.input}
-                                        placeholder="YYYY-MM-DD"
-                                        placeholderTextColor="#a0a0a0"
-                                        value={newEnquiry.nextFollowUpDate}
-                                        onChangeText={(text) =>
-                                            setNewEnquiry({
-                                                ...newEnquiry,
-                                                nextFollowUpDate: text,
-                                            })
-                                        }
-                                    />
-                                </View>
-                            </View>
-                        )}
-
-                        {/* Enquiry Status */}
-                        <DropdownComponent
-                            label="Enquiry Status"
-                            options={[
-                                "New",
-                                "Interested",
-                                "Not Interested",
-                                "Converted",
-                            ]}
-                            value={newEnquiry.enquiryStatus}
-                            onChange={(value) =>
-                                setNewEnquiry({
-                                    ...newEnquiry,
-                                    enquiryStatus: value,
-                                })
-                            }
-                            field="enquiryStatus"
-                        />
-
-                        {/* Action Buttons */}
-                        <View style={styles.actionButtonsContainer}>
-                            <LinearGradient
-                                colors={["#667eea", "#764ba2"]}
-                                style={[styles.actionGradient, styles.flex1]}>
-                                <TouchableOpacity
-                                    style={styles.actionButton}
-                                    onPress={saveEnquiry}>
-                                    <MaterialIcons
-                                        name="save"
-                                        size={20}
-                                        color="#fff"
-                                        style={styles.buttonIcon}
-                                    />
-                                    <Text style={styles.actionButtonText}>
-                                        Save
-                                    </Text>
-                                </TouchableOpacity>
-                            </LinearGradient>
-
-                            <LinearGradient
-                                colors={["#00d4ff", "#0099cc"]}
-                                style={[styles.actionGradient, styles.flex1]}>
-                                <TouchableOpacity
-                                    style={styles.actionButton}
-                                    onPress={saveAndAddFollowUp}>
-                                    <MaterialIcons
-                                        name="add-alarm"
-                                        size={20}
-                                        color="#fff"
-                                        style={styles.buttonIcon}
-                                    />
-                                    <Text style={styles.actionButtonText}>
-                                        Save & Follow-up
-                                    </Text>
-                                </TouchableOpacity>
-                            </LinearGradient>
-
-                            <LinearGradient
-                                colors={["#ff6b6b", "#cc0000"]}
-                                style={[styles.actionGradient, styles.flex1]}>
-                                <TouchableOpacity
-                                    style={styles.actionButton}
-                                    onPress={() => {
-                                        resetForm();
-                                        setShowForm(false);
-                                    }}>
-                                    <MaterialIcons
-                                        name="close"
-                                        size={20}
-                                        color="#fff"
-                                        style={styles.buttonIcon}
-                                    />
-                                    <Text style={styles.actionButtonText}>
-                                        Cancel
-                                    </Text>
-                                </TouchableOpacity>
-                            </LinearGradient>
-                        </View>
-                    </Animated.View>
-                )}
-
-                {/* Edit Enquiry Form */}
-                {showEditForm && editingEnquiry && (
-                    <Animated.View
-                        entering={FadeInUp.delay(200)}
-                        style={styles.addForm}>
-                        <Text style={styles.formTitle}>Edit Enquiry</Text>
-
-                        {/* Enquiry Number (Read-only) */}
-                        <View style={styles.fieldGroup}>
-                            <Text style={styles.label}>
-                                Enquiry Number{" "}
-                                <Text style={styles.readOnlyBadge}>(Auto)</Text>
-                            </Text>
-                            <TextInput
-                                style={[styles.input, styles.readOnlyInput]}
-                                editable={false}
-                                value={newEnquiry.enquiryNumber}
-                                placeholder="Auto Generated"
-                                placeholderTextColor="#a0a0a0"
-                            />
-                        </View>
-
-                        {/* Enquiry Type */}
-                        <DropdownComponent
-                            label="Enquiry Type"
-                            options={[
-                                "Product Inquiry",
-                                "Service Inquiry",
-                                "General Inquiry",
-                            ]}
-                            value={newEnquiry.enquiryType}
-                            onChange={(value) =>
-                                setNewEnquiry({
-                                    ...newEnquiry,
-                                    enquiryType: value,
-                                })
-                            }
-                            field="enquiryType"
-                        />
-
-                        {/* Lead Source */}
-                        <DropdownComponent
-                            label="Lead Source"
-                            options={[
-                                "Walk-in",
-                                "Phone",
-                                "Email",
-                                "Website",
-                                "Social Media",
-                                "Referral",
-                            ]}
-                            value={newEnquiry.leadSource}
-                            onChange={(value) =>
-                                setNewEnquiry({
-                                    ...newEnquiry,
-                                    leadSource: value,
-                                })
-                            }
-                            field="leadSource"
-                        />
-
-                        {/* Customer Name */}
-                        <View style={styles.fieldGroup}>
-                            <Text style={styles.label}>
-                                Customer Name{" "}
-                                <Text style={styles.required}>*</Text>
-                            </Text>
-                            <View style={styles.inputContainer}>
-                                <MaterialIcons
-                                    name="person"
-                                    size={20}
-                                    color="#667eea"
-                                    style={styles.inputIcon}
-                                />
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder="Enter customer name"
-                                    placeholderTextColor="#a0a0a0"
-                                    value={newEnquiry.customerName}
-                                    onChangeText={(text) =>
-                                        setNewEnquiry({
-                                            ...newEnquiry,
-                                            customerName: text,
-                                        })
-                                    }
-                                />
-                            </View>
-                        </View>
-
-                        {/* Address */}
-                        <View style={styles.fieldGroup}>
-                            <Text style={styles.label}>Address</Text>
-                            <View style={styles.inputContainer}>
-                                <MaterialIcons
-                                    name="location-on"
-                                    size={20}
-                                    color="#667eea"
-                                    style={styles.inputIcon}
-                                />
-                                <TextInput
-                                    style={[
-                                        styles.input,
-                                        styles.multilineInput,
-                                    ]}
-                                    placeholder="Enter address"
-                                    placeholderTextColor="#a0a0a0"
-                                    value={newEnquiry.address}
-                                    onChangeText={(text) =>
-                                        setNewEnquiry({
-                                            ...newEnquiry,
-                                            address: text,
-                                        })
-                                    }
-                                    multiline
-                                    numberOfLines={3}
-                                />
-                            </View>
-                        </View>
-
-                        {/* Mobile Number */}
-                        <View style={styles.fieldGroup}>
-                            <Text style={styles.label}>
-                                Mobile Number{" "}
-                                <Text style={styles.required}>*</Text>
-                            </Text>
-                            <View style={styles.inputContainer}>
-                                <MaterialIcons
-                                    name="phone"
-                                    size={20}
-                                    color="#667eea"
-                                    style={styles.inputIcon}
-                                />
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder="Enter mobile number"
-                                    placeholderTextColor="#a0a0a0"
-                                    value={newEnquiry.mobileNumber}
-                                    onChangeText={(text) =>
-                                        setNewEnquiry({
-                                            ...newEnquiry,
-                                            mobileNumber: text,
-                                        })
-                                    }
-                                    keyboardType="phone-pad"
-                                />
-                            </View>
-                        </View>
-
-                        {/* Alternate Mobile Number */}
-                        <View style={styles.fieldGroup}>
-                            <Text style={styles.label}>
-                                Alternate Mobile Number
-                            </Text>
-                            <View style={styles.inputContainer}>
-                                <MaterialIcons
-                                    name="phone"
-                                    size={20}
-                                    color="#667eea"
-                                    style={styles.inputIcon}
-                                />
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder="Enter alternate mobile number"
-                                    placeholderTextColor="#a0a0a0"
-                                    value={newEnquiry.alternateMobileNumber}
-                                    onChangeText={(text) =>
-                                        setNewEnquiry({
-                                            ...newEnquiry,
-                                            alternateMobileNumber: text,
-                                        })
-                                    }
-                                    keyboardType="phone-pad"
-                                />
-                            </View>
-                        </View>
-
-                        {/* Product Name */}
-                        <View style={styles.fieldGroup}>
-                            <Text style={styles.label}>
-                                Product Name{" "}
-                                <Text style={styles.required}>*</Text>
-                            </Text>
-                            <View style={styles.inputContainer}>
-                                <MaterialIcons
-                                    name="shopping-bag"
-                                    size={20}
-                                    color="#667eea"
-                                    style={styles.inputIcon}
-                                />
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder="Enter product name"
-                                    placeholderTextColor="#a0a0a0"
-                                    value={newEnquiry.productName}
-                                    onChangeText={(text) =>
-                                        setNewEnquiry({
-                                            ...newEnquiry,
-                                            productName: text,
-                                        })
-                                    }
-                                />
-                            </View>
-                        </View>
-
-                        {/* Product Cost */}
-                        <View style={styles.fieldGroup}>
-                            <Text style={styles.label}>
-                                Product Cost (Lead Value){" "}
-                                <Text style={styles.required}>*</Text>
-                            </Text>
-                            <View style={styles.inputContainer}>
-                                <MaterialIcons
-                                    name="currency-rupee"
-                                    size={20}
-                                    color="#667eea"
-                                    style={styles.inputIcon}
-                                />
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder="Enter cost"
-                                    placeholderTextColor="#a0a0a0"
-                                    value={newEnquiry.productCost}
-                                    onChangeText={(text) =>
-                                        setNewEnquiry({
-                                            ...newEnquiry,
-                                            productCost: text,
-                                        })
-                                    }
-                                    keyboardType="decimal-pad"
-                                />
-                            </View>
-                        </View>
-
-                        {/* Payment Method */}
-                        <DropdownComponent
-                            label="Payment Method"
-                            options={["Cash", "Credit", "EMI", "Online"]}
-                            value={newEnquiry.paymentMethod}
-                            onChange={(value) =>
-                                setNewEnquiry({
-                                    ...newEnquiry,
-                                    paymentMethod: value,
-                                })
-                            }
-                            field="paymentMethod"
-                        />
-
-                        {/* Remarks */}
-                        <View style={styles.fieldGroup}>
-                            <Text style={styles.label}>
-                                Remarks / Notes{" "}
-                                <Text style={styles.optional}>(Optional)</Text>
-                            </Text>
-                            <View style={styles.inputContainer}>
-                                <MaterialIcons
-                                    name="note"
-                                    size={20}
-                                    color="#667eea"
-                                    style={styles.inputIcon}
-                                />
-                                <TextInput
-                                    style={[
-                                        styles.input,
-                                        styles.multilineInput,
-                                    ]}
-                                    placeholder="Enter remarks"
-                                    placeholderTextColor="#a0a0a0"
-                                    value={newEnquiry.remarks}
-                                    onChangeText={(text) =>
-                                        setNewEnquiry({
-                                            ...newEnquiry,
-                                            remarks: text,
-                                        })
-                                    }
-                                    multiline
-                                    numberOfLines={3}
-                                />
-                            </View>
-                        </View>
-
-                        {/* Enquiry Status */}
-                        <DropdownComponent
-                            label="Enquiry Status"
-                            options={[
-                                "New",
-                                "Interested",
-                                "Not Interested",
-                                "Converted",
-                            ]}
-                            value={newEnquiry.enquiryStatus}
-                            onChange={(value) =>
-                                setNewEnquiry({
-                                    ...newEnquiry,
-                                    enquiryStatus: value,
-                                })
-                            }
-                            field="enquiryStatus"
-                        />
-
-                        {/* Action Buttons */}
-                        <View style={styles.actionButtonsContainer}>
-                            <LinearGradient
-                                colors={["#667eea", "#764ba2"]}
-                                style={[styles.actionGradient, styles.flex1]}>
-                                <TouchableOpacity
-                                    style={styles.actionButton}
-                                    onPress={handleUpdateEnquiry}>
-                                    <MaterialIcons
-                                        name="save"
-                                        size={20}
-                                        color="#fff"
-                                        style={styles.buttonIcon}
-                                    />
-                                    <Text style={styles.actionButtonText}>
-                                        Update
-                                    </Text>
-                                </TouchableOpacity>
-                            </LinearGradient>
-
-                            <LinearGradient
-                                colors={["#ff6b6b", "#cc0000"]}
-                                style={[styles.actionGradient, styles.flex1]}>
-                                <TouchableOpacity
-                                    style={styles.actionButton}
-                                    onPress={() => {
-                                        resetForm();
-                                        setShowEditForm(false);
-                                        setEditingEnquiry(null);
-                                    }}>
-                                    <MaterialIcons
-                                        name="close"
-                                        size={20}
-                                        color="#fff"
-                                        style={styles.buttonIcon}
-                                    />
-                                    <Text style={styles.actionButtonText}>
-                                        Cancel
-                                    </Text>
-                                </TouchableOpacity>
-                            </LinearGradient>
-                        </View>
-                    </Animated.View>
-                )}
-
-                {/* Recent Enquiry Details Section */}
-                {enquiries.length > 0 && (
-                    <Animated.View
-                        entering={FadeInUp.delay(250)}
-                        style={styles.recentEnquiryContainer}>
-                        <Text style={styles.recentEnquiryLabel}>
-                            Recent Enquiry
-                        </Text>
-                        <TouchableOpacity
-                            onPress={() =>
-                                setSelectedEnquiry(
-                                    enquiries[enquiries.length - 1],
-                                )
-                            }
-                            activeOpacity={0.7}>
-                            <View
-                                style={[
-                                    styles.minimalCard,
-                                    {
-                                        borderLeftColor:
-                                            enquiries[enquiries.length - 1]
-                                                .enquiryStatus === "New"
-                                                ? "#667eea"
-                                                : enquiries[
-                                                        enquiries.length - 1
-                                                    ].enquiryStatus ===
-                                                    "Interested"
-                                                  ? "#ffc107"
-                                                  : enquiries[
-                                                          enquiries.length - 1
-                                                      ].enquiryStatus ===
-                                                      "Converted"
-                                                    ? "#28a745"
-                                                    : "#dc3545",
-                                    },
-                                ]}>
-                                {/* Action Icons - Top Right */}
-                                <View style={styles.cardActionIcons}>
-                                    <TouchableOpacity
-                                        style={styles.minimalIconButton}
-                                        onPress={() =>
-                                            handleEditEnquiry(
-                                                enquiries[enquiries.length - 1],
-                                            )
-                                        }>
-                                        <MaterialIcons
-                                            name="edit"
-                                            size={16}
-                                            color="#667eea"
-                                        />
-                                    </TouchableOpacity>
-
-                                    <TouchableOpacity
-                                        style={styles.minimalIconButton}
-                                        onPress={() =>
-                                            handleDeleteEnquiry(
-                                                enquiries[enquiries.length - 1]
-                                                    .id,
-                                            )
-                                        }>
-                                        <MaterialIcons
-                                            name="delete"
-                                            size={16}
-                                            color="#ff6b6b"
-                                        />
-                                    </TouchableOpacity>
-                                </View>
-
-                                <View style={styles.cardHeader}>
-                                    <View>
-                                        <Text style={styles.cardCustomerName}>
-                                            {
-                                                enquiries[enquiries.length - 1]
-                                                    .customerName
-                                            }
-                                        </Text>
-                                        <Text style={styles.cardEnquiryId}>
-                                            {
-                                                enquiries[enquiries.length - 1]
-                                                    .enquiryNumber
-                                            }
-                                        </Text>
-                                    </View>
-                                    <View style={styles.cardBadge}>
-                                        <Text style={styles.cardStatus}>
-                                            {
-                                                enquiries[enquiries.length - 1]
-                                                    .enquiryStatus
-                                            }
-                                        </Text>
-                                    </View>
-                                </View>
-
-                                <View style={styles.cardDivider} />
-
-                                <View style={styles.cardContent}>
-                                    <View style={styles.cardField}>
-                                        <Text style={styles.cardFieldLabel}>
-                                            Product
-                                        </Text>
-                                        <Text style={styles.cardFieldValue}>
-                                            {
-                                                enquiries[enquiries.length - 1]
-                                                    .productName
-                                            }
-                                        </Text>
-                                    </View>
-                                    <View style={styles.cardField}>
-                                        <Text style={styles.cardFieldLabel}>
-                                            Phone
-                                        </Text>
-                                        <Text style={styles.cardFieldValue}>
-                                            {
-                                                enquiries[enquiries.length - 1]
-                                                    .mobileNumber
-                                            }
-                                        </Text>
-                                    </View>
-                                    <View style={styles.cardField}>
-                                        <Text style={styles.cardFieldLabel}>
-                                            Cost
-                                        </Text>
-                                        <Text style={styles.cardFieldValue}>
-                                            ₹
-                                            {
-                                                enquiries[enquiries.length - 1]
-                                                    .productCost
-                                            }
-                                        </Text>
-                                    </View>
-                                </View>
-                            </View>
-                        </TouchableOpacity>
-                    </Animated.View>
-                )}
-
-                {/* Enquiry Details Modal */}
-                <Modal
-                    visible={selectedEnquiry !== null}
-                    transparent
-                    animationType="slide"
-                    onRequestClose={() => setSelectedEnquiry(null)}>
-                    <LinearGradient
-                        colors={["#0f0f23", "#1a1a2e", "#16213e"]}
-                        style={styles.modalContainer}>
-                        <ScrollView style={styles.modalContent}>
+            {/* --- LIST SCREEN --- */}
+            {screen === "list" && (
+                <View style={styles.flex1}>
+                    {/* Top Bar */}
+                    <View style={styles.topBar}>
+                        <Text style={styles.topBarTitle}>Enquiries</Text>
+                        <View style={styles.topBarActions}>
                             <TouchableOpacity
-                                style={styles.closeButton}
-                                onPress={() => setSelectedEnquiry(null)}>
-                                <MaterialIcons
-                                    name="close"
-                                    size={28}
+                                style={styles.iconBtn}
+                                onPress={handleAddEnquiryPress}>
+                                <Ionicons
+                                    name="add-circle"
+                                    size={24}
+                                    color="#fff"
+                                />
+                                <Text style={styles.iconBtnText}>Add</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={styles.iconBtn}>
+                                <Ionicons
+                                    name="download-outline"
+                                    size={20}
                                     color="#fff"
                                 />
                             </TouchableOpacity>
+                            <TouchableOpacity style={styles.iconBtn}>
+                                <Ionicons
+                                    name="share-social-outline"
+                                    size={20}
+                                    color="#fff"
+                                />
+                            </TouchableOpacity>
+                        </View>
+                    </View>
 
-                            {selectedEnquiry && (
-                                <ScrollView showsVerticalScrollIndicator={false}>
-                                    <View style={styles.detailsContainer}>
-                                        <Text style={styles.modalTitle}>
-                                            Enquiry Details
-                                        </Text>
+                    {/* Filters & Search */}
+                    <View style={styles.filtersContainer}>
+                        <View style={styles.searchRow}>
+                            <Ionicons name="search" size={20} color="#64748b" />
+                            <TextInput
+                                style={styles.searchInput}
+                                placeholder="Search Name / Mobile..."
+                                value={searchQuery}
+                                onChangeText={setSearchQuery}
+                            />
+                        </View>
+                        <View style={styles.filterRow}>
+                            <TouchableOpacity style={styles.filterChip}>
+                                <Text style={styles.filterChipText}>
+                                    Date Range ▼
+                                </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={styles.filterChip}>
+                                <Text style={styles.filterChipText}>
+                                    Status ▼
+                                </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={styles.filterChip}>
+                                <Text style={styles.filterChipText}>
+                                    Source ▼
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
 
-                                        <DetailRow
-                                            label="Enquiry Number"
-                                            value={selectedEnquiry.enquiryNumber}
-                                        />
-                                        <DetailRow
-                                            label="Customer Name"
-                                            value={selectedEnquiry.customerName}
-                                        />
-                                        <DetailRow
-                                            label="Mobile Number"
-                                            value={selectedEnquiry.mobileNumber}
-                                        />
-                                        <DetailRow
-                                            label="Product Name"
-                                            value={selectedEnquiry.productName}
-                                        />
-                                        <DetailRow
-                                            label="Product Cost"
-                                            value={`₹${selectedEnquiry.productCost}`}
-                                        />
-                                        <DetailRow
-                                            label="Status"
-                                            value={selectedEnquiry.enquiryStatus}
-                                        />
-                                        <DetailRow
-                                            label="Enquiry Date"
-                                            value={selectedEnquiry.enquiryDate}
-                                        />
-                                        {selectedEnquiry.remarks && (
-                                            <DetailRow
-                                                label="Remarks"
-                                                value={selectedEnquiry.remarks}
-                                            />
-                                        )}
-                                    </View>
+                    {/* Enquiry List */}
+                    <FlatList
+                        data={enquiries}
+                        keyExtractor={(item) => item.id.toString()}
+                        renderItem={ListItem}
+                        contentContainerStyle={styles.listContent}
+                        ListEmptyComponent={
+                            <Text style={styles.emptyText}>
+                                No enquiries found
+                            </Text>
+                        }
+                    />
+                </View>
+            )}
 
-                                    {/* Follow-up Section */}
-                                    <View style={styles.followUpSectionContainer}>
-                                        <View style={styles.sectionHeader}>
-                                            <View style={styles.sectionHeaderLeft}>
-                                                <MaterialCommunityIcons
-                                                    name="calendar-check"
-                                                    size={24}
-                                                    color="#667eea"
-                                                    style={styles.sectionIcon}
-                                                />
-                                                <Text style={styles.sectionTitleModal}>
-                                                    Follow-up Management
-                                                </Text>
-                                            </View>
-                                            <TouchableOpacity
-                                                style={styles.addFollowUpButton}
-                                                onPress={() =>
-                                                    setShowFollowUpForm(!showFollowUpForm)
-                                                }>
-                                                <MaterialIcons
-                                                    name={
-                                                        showFollowUpForm
-                                                            ? "close"
-                                                            : "add"
-                                                    }
-                                                    size={20}
-                                                    color="#fff"
-                                                />
-                                            </TouchableOpacity>
-                                        </View>
+            {/* --- ADD ENQUIRY SCREEN --- */}
+            {screen === "add" && (
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === "ios" ? "padding" : "height"}
+                    style={styles.flex1}>
+                    <View style={styles.subHeader}>
+                        <TouchableOpacity onPress={() => setScreen("list")}>
+                            <Ionicons
+                                name="arrow-back"
+                                size={24}
+                                color="#fff"
+                            />
+                        </TouchableOpacity>
+                        <Text style={styles.subHeaderTitle}>Add Enquiry</Text>
+                        <View style={{ width: 24 }} />
+                    </View>
 
-                                        {/* Add Follow-up Form */}
-                                        {showFollowUpForm && (
-                                            <Animated.View
-                                                entering={FadeInUp.delay(100)}
-                                                style={styles.followUpForm}>
-                                                <Text style={styles.formSubtitle}>
-                                                    Add New Follow-up
-                                                </Text>
+                    <ScrollView
+                        style={styles.formContainer}
+                        showsVerticalScrollIndicator={false}>
+                        {/* Auto Fields */}
+                        <View style={styles.sectionTitleContainer}>
+                            <Text style={styles.sectionTitle}>
+                                System Details
+                            </Text>
+                        </View>
+                        <View style={styles.formRow}>
+                            <View style={styles.flex1}>
+                                <FormInput
+                                    label="Enquiry No"
+                                    value={formData.enqNo}
+                                    readOnly
+                                />
+                            </View>
+                            <View style={styles.flex1}>
+                                <FormInput
+                                    label="Date"
+                                    value={formData.date}
+                                    readOnly
+                                />
+                            </View>
+                        </View>
+                        <FormInput
+                            label="Enquiry By"
+                            value={formData.enqBy}
+                            readOnly
+                        />
 
-                                                {/* Follow-up Date */}
-                                                <View style={styles.fieldGroup}>
-                                                    <Text style={styles.label}>
-                                                        Follow-up Date{" "}
-                                                        <Text style={styles.required}>
-                                                            *
-                                                        </Text>
-                                                    </Text>
-                                                    <View
-                                                        style={
-                                                            styles.inputContainer
-                                                        }>
-                                                        <MaterialIcons
-                                                            name="event"
-                                                            size={20}
-                                                            color="#667eea"
-                                                            style={
-                                                                styles.inputIcon
-                                                            }
-                                                        />
-                                                        <TextInput
-                                                            style={styles.input}
-                                                            placeholder="YYYY-MM-DD"
-                                                            placeholderTextColor="#a0a0a0"
-                                                            value={
-                                                                newFollowUp.date
-                                                            }
-                                                            onChangeText={(
-                                                                text
-                                                            ) =>
-                                                                setNewFollowUp({
-                                                                    ...newFollowUp,
-                                                                    date: text,
-                                                                })
-                                                            }
-                                                        />
-                                                    </View>
-                                                </View>
+                        {/* User Inputs */}
+                        <View style={styles.sectionTitleContainer}>
+                            <Text style={styles.sectionTitle}>
+                                Customer Details
+                            </Text>
+                        </View>
 
-                                                {/* Remarks */}
-                                                <View style={styles.fieldGroup}>
-                                                    <Text style={styles.label}>
-                                                        Remarks{" "}
-                                                        <Text
-                                                            style={
-                                                                styles.optional
-                                                            }
-                                                        >
-                                                            (Optional)
-                                                        </Text>
-                                                    </Text>
-                                                    <View
-                                                        style={
-                                                            styles.inputContainer
-                                                        }>
-                                                        <MaterialIcons
-                                                            name="note"
-                                                            size={20}
-                                                            color="#667eea"
-                                                            style={
-                                                                styles.inputIcon
-                                                            }
-                                                        />
-                                                        <TextInput
-                                                            style={[
-                                                                styles.input,
-                                                                styles.multilineInput,
-                                                            ]}
-                                                            placeholder="Enter follow-up remarks"
-                                                            placeholderTextColor="#a0a0a0"
-                                                            value={
-                                                                newFollowUp.remarks
-                                                            }
-                                                            onChangeText={(
-                                                                text
-                                                            ) =>
-                                                                setNewFollowUp({
-                                                                    ...newFollowUp,
-                                                                    remarks: text,
-                                                                })
-                                                            }
-                                                            multiline
-                                                            numberOfLines={3}
-                                                        />
-                                                    </View>
-                                                </View>
+                        <View style={styles.formRow}>
+                            <View style={styles.flex1}>
+                                <FormInput
+                                    label="Enquiry Type"
+                                    value={formData.enqType}
+                                    onChangeText={(t) =>
+                                        setFormData({ ...formData, enqType: t })
+                                    }
+                                    placeholder="Select Type"
+                                />
+                            </View>
+                            <View style={styles.flex1}>
+                                <FormInput
+                                    label="Lead Source"
+                                    value={formData.source}
+                                    onChangeText={(t) =>
+                                        setFormData({ ...formData, source: t })
+                                    }
+                                    placeholder="Source"
+                                />
+                            </View>
+                        </View>
 
-                                                {/* Form Buttons */}
-                                                <View
-                                                    style={
-                                                        styles.followUpFormButtons
-                                                    }>
-                                                    <LinearGradient
-                                                        colors={[
-                                                            "#667eea",
-                                                            "#764ba2",
-                                                        ]}
-                                                        style={[
-                                                            styles.actionGradient,
-                                                            styles.flex1,
-                                                        ]}>
-                                                        <TouchableOpacity
-                                                            style={
-                                                                styles.actionButton
-                                                            }
-                                                            onPress={
-                                                                addFollowUp
-                                                            }>
-                                                            <MaterialIcons
-                                                                name="check"
-                                                                size={20}
-                                                                color="#fff"
-                                                                style={
-                                                                    styles.buttonIcon
-                                                                }
-                                                            />
-                                                            <Text
-                                                                style={
-                                                                    styles.actionButtonText
-                                                                }>
-                                                                Add Follow-up
-                                                            </Text>
-                                                        </TouchableOpacity>
-                                                    </LinearGradient>
+                        <FormInput
+                            label="Customer Name"
+                            value={formData.name}
+                            onChangeText={(t) =>
+                                setFormData({ ...formData, name: t })
+                            }
+                            placeholder="Full Name"
+                        />
+                        <FormInput
+                            label="Mobile No"
+                            value={formData.mobile}
+                            onChangeText={(t) =>
+                                setFormData({ ...formData, mobile: t })
+                            }
+                            placeholder="10 Digit Mobile"
+                            keyboardType="numeric"
+                        />
+                        <FormInput
+                            label="Alt. Mobile"
+                            value={formData.altMobile}
+                            onChangeText={(t) =>
+                                setFormData({ ...formData, altMobile: t })
+                            }
+                            placeholder="Alternate Mobile"
+                            keyboardType="numeric"
+                        />
+                        <FormInput
+                            label="Address"
+                            value={formData.address}
+                            onChangeText={(t) =>
+                                setFormData({ ...formData, address: t })
+                            }
+                            placeholder="Full Address"
+                        />
 
-                                                    <LinearGradient
-                                                        colors={[
-                                                            "#ff6b6b",
-                                                            "#cc0000",
-                                                        ]}
-                                                        style={[
-                                                            styles.actionGradient,
-                                                            styles.flex1,
-                                                        ]}>
-                                                        <TouchableOpacity
-                                                            style={
-                                                                styles.actionButton
-                                                            }
-                                                            onPress={() => {
-                                                                resetFollowUpForm();
-                                                                setShowFollowUpForm(
-                                                                    false
-                                                                );
-                                                            }}>
-                                                            <MaterialIcons
-                                                                name="close"
-                                                                size={20}
-                                                                color="#fff"
-                                                                style={
-                                                                    styles.buttonIcon
-                                                                }
-                                                            />
-                                                            <Text
-                                                                style={
-                                                                    styles.actionButtonText
-                                                                }>
-                                                                Cancel
-                                                            </Text>
-                                                        </TouchableOpacity>
-                                                    </LinearGradient>
-                                                </View>
-                                            </Animated.View>
-                                        )}
+                        <View style={styles.sectionTitleContainer}>
+                            <Text style={styles.sectionTitle}>
+                                Product Details
+                            </Text>
+                        </View>
 
-                                        {/* Follow-ups List */}
-                                        <View style={styles.followUpListContainer}>
-                                            {getFollowUpsForEnquiry().length >
-                                            0 ? (
-                                                <FlatList
-                                                    data={getFollowUpsForEnquiry()}
-                                                    renderItem={renderFollowUp}
-                                                    keyExtractor={(item) =>
-                                                        item.id
-                                                    }
-                                                    scrollEnabled={false}
-                                                    style={styles.list}
-                                                />
-                                            ) : (
-                                                <Text
-                                                    style={
-                                                        styles.noFollowUpText
-                                                    }>
-                                                    No follow-ups added yet
-                                                </Text>
-                                            )}
-                                        </View>
-                                    </View>
-                                </ScrollView>
-                            )}
-                        </ScrollView>
-                    </LinearGradient>
-                </Modal>
-            </ScrollView>
-        </LinearGradient>
+                        <FormInput
+                            label="Product Name"
+                            value={formData.product}
+                            onChangeText={(t) =>
+                                setFormData({ ...formData, product: t })
+                            }
+                            placeholder="Product"
+                        />
+                        <View style={styles.formRow}>
+                            <View style={styles.flex1}>
+                                <FormInput
+                                    label="Variant"
+                                    value={formData.variant}
+                                    onChangeText={(t) =>
+                                        setFormData({ ...formData, variant: t })
+                                    }
+                                    placeholder="Model"
+                                />
+                            </View>
+                            <View style={styles.flex1}>
+                                <FormInput
+                                    label="Color"
+                                    value={formData.color}
+                                    onChangeText={(t) =>
+                                        setFormData({ ...formData, color: t })
+                                    }
+                                    placeholder="Color"
+                                />
+                            </View>
+                        </View>
+
+                        <FormInput
+                            label="Approx. Cost (Lead Value)"
+                            value={formData.cost}
+                            onChangeText={(t) =>
+                                setFormData({ ...formData, cost: t })
+                            }
+                            placeholder="0.00"
+                            keyboardType="numeric"
+                        />
+                        <FormInput
+                            label="Payment Method"
+                            value={formData.paymentMethod}
+                            onChangeText={(t) =>
+                                setFormData({ ...formData, paymentMethod: t })
+                            }
+                            placeholder="Cash / Credit"
+                        />
+
+                        <View style={styles.formButtons}>
+                            <TouchableOpacity
+                                style={styles.btnSecondary}
+                                onPress={() => setScreen("list")}>
+                                <Text style={styles.btnSecondaryText}>
+                                    Cancel
+                                </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={styles.btnPrimary}
+                                onPress={handleSaveEnquiry}>
+                                <Ionicons
+                                    name="save-outline"
+                                    size={20}
+                                    color="#fff"
+                                />
+                                <Text style={styles.btnPrimaryText}>
+                                    Save Enquiry
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                    </ScrollView>
+                </KeyboardAvoidingView>
+            )}
+
+            {/* --- FOLLOW UP MODAL --- */}
+            <Modal visible={showFollowUpModal} transparent animationType="fade">
+                <View style={styles.modalOverlay}>
+                    <View style={styles.modalCard}>
+                        <View style={styles.modalIconContainer}>
+                            <Ionicons
+                                name="timer-outline"
+                                size={40}
+                                color="#2563eb"
+                            />
+                        </View>
+                        <Text style={styles.modalTitle}>Follow-up?</Text>
+                        <Text style={styles.modalMessage}>
+                            Do you want to add a follow-up for this enquiry?
+                        </Text>
+
+                        <View style={styles.modalActions}>
+                            <TouchableOpacity
+                                style={[styles.modalBtn, styles.modalBtnNo]}
+                                onPress={() => handleFollowUpResponse("no")}>
+                                <Text style={styles.modalBtnNoText}>
+                                    No, Go to List
+                                </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.modalBtn, styles.modalBtnYes]}
+                                onPress={() => handleFollowUpResponse("yes")}>
+                                <Text style={styles.modalBtnYesText}>
+                                    Yes, Add Follow-up
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
+        </SafeAreaView>
     );
 }
 
-// Detail Row Component for Modal
-function DetailRow({ label, value }) {
-    return (
-        <View style={styles.detailRowContainer}>
-            <Text style={styles.detailLabel}>{label}</Text>
-            <Text style={styles.detailValue}>{value}</Text>
-        </View>
-    );
-}
-
+// --- STYLES ---
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-    },
-    scrollContainer: {
-        flex: 1,
-        padding: 16,
-    },
-    header: {
-        alignItems: "center",
-        marginBottom: 24,
-        marginTop: 8,
-    },
-    headerIcon: {
-        marginBottom: 12,
-    },
-    title: {
-        fontSize: 28,
-        fontWeight: "700",
-        color: "#fff",
-        marginBottom: 4,
-        textAlign: "center",
-    },
-    subtitle: {
-        fontSize: 14,
-        color: "#a0a0a0",
-        textAlign: "center",
-    },
-    buttonContainer: {
-        marginBottom: 20,
-    },
-    addForm: {
-        backgroundColor: "rgba(255,255,255,0.05)",
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.1)",
-        borderRadius: 16,
-        padding: 20,
-        marginBottom: 24,
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.1,
-        shadowRadius: 8,
-        elevation: 4,
-    },
-    formTitle: {
-        fontSize: 22,
-        fontWeight: "700",
-        color: "#fff",
-        marginBottom: 20,
-        textAlign: "center",
-    },
-    sectionTitle: {
-        fontSize: 16,
-        fontWeight: "600",
-        color: "#667eea",
-        marginTop: 20,
-        marginBottom: 16,
-        borderBottomWidth: 1,
-        borderBottomColor: "rgba(102,126,234,0.3)",
-        paddingBottom: 8,
-    },
-    fieldGroup: {
-        marginBottom: 16,
-    },
-    label: {
-        fontSize: 14,
-        fontWeight: "600",
-        color: "#fff",
-        marginBottom: 8,
-    },
-    required: {
-        color: "#ff6b6b",
-        fontSize: 16,
-    },
-    readOnlyBadge: {
-        color: "#a0a0a0",
-        fontSize: 12,
-        fontWeight: "400",
-    },
-    optional: {
-        color: "#ffc107",
-        fontSize: 12,
-        fontWeight: "400",
-    },
-    inputContainer: {
-        position: "relative",
-        flexDirection: "row",
-        alignItems: "flex-start",
-    },
-    inputIcon: {
-        position: "absolute",
-        left: 16,
-        top: 18,
-        zIndex: 1,
-    },
-    input: {
-        flex: 1,
-        height: 56,
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.1)",
-        borderRadius: 12,
-        paddingHorizontal: 56,
-        paddingVertical: 12,
-        fontSize: 15,
-        backgroundColor: "rgba(255,255,255,0.05)",
-        color: "#fff",
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        elevation: 2,
-    },
-    multilineInput: {
-        height: 100,
-        paddingVertical: 12,
-        textAlignVertical: "top",
-    },
-    readOnlyInput: {
-        opacity: 0.6,
-        backgroundColor: "rgba(255,255,255,0.02)",
-    },
-    dropdownContainer: {
-        marginBottom: 16,
-    },
-    dropdownButton: {
-        height: 56,
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.1)",
-        borderRadius: 12,
-        paddingHorizontal: 16,
-        backgroundColor: "rgba(255,255,255,0.05)",
+    flex1: { flex: 1 },
+    container: { flex: 1, backgroundColor: "#f1f5f9" },
+
+    // List Screen
+    topBar: {
+        backgroundColor: "#2563eb",
+        paddingVertical: 15,
+        paddingHorizontal: 15,
         flexDirection: "row",
         justifyContent: "space-between",
         alignItems: "center",
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        elevation: 2,
-    },
-    dropdownButtonText: {
-        fontSize: 15,
-        color: "#fff",
-    },
-    dropdownMenu: {
-        position: "absolute",
-        top: 66,
-        left: 0,
-        right: 0,
-        backgroundColor: "rgba(26,26,46,0.95)",
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.1)",
-        borderRadius: 12,
-        zIndex: 1000,
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 8,
-        elevation: 8,
-    },
-    dropdownMenuItem: {
-        paddingHorizontal: 16,
-        paddingVertical: 12,
-        borderBottomWidth: 1,
-        borderBottomColor: "rgba(255,255,255,0.05)",
-    },
-    dropdownMenuItemText: {
-        fontSize: 15,
-        color: "#fff",
-    },
-    actionButtonsContainer: {
-        flexDirection: "row",
-        gap: 12,
-        marginTop: 24,
-    },
-    flex1: {
-        flex: 1,
-    },
-    actionGradient: {
-        borderRadius: 12,
-        shadowColor: "#667eea",
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 8,
         elevation: 4,
     },
-    actionButton: {
-        height: 56,
+    topBarTitle: { color: "#fff", fontSize: 20, fontWeight: "bold" },
+    topBarActions: { flexDirection: "row", alignItems: "center" },
+    iconBtn: { flexDirection: "row", alignItems: "center", marginLeft: 15 },
+    iconBtnText: { color: "#fff", marginLeft: 5, fontWeight: "600" },
+
+    filtersContainer: { padding: 15, backgroundColor: "#fff" },
+    searchRow: {
         flexDirection: "row",
-        justifyContent: "center",
         alignItems: "center",
-        borderRadius: 12,
+        backgroundColor: "#f1f5f9",
+        borderRadius: 8,
+        paddingHorizontal: 10,
+        marginBottom: 10,
     },
-    actionButtonText: {
-        color: "#fff",
-        fontSize: 14,
-        fontWeight: "600",
-    },
-    buttonGradient: {
-        borderRadius: 12,
-        shadowColor: "#667eea",
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 8,
-        elevation: 4,
-    },
-    button: {
-        height: 56,
-        flexDirection: "row",
-        justifyContent: "center",
-        alignItems: "center",
-        borderRadius: 12,
-    },
-    buttonIcon: {
-        marginRight: 8,
-    },
-    buttonText: {
-        color: "#fff",
-        fontSize: 16,
-        fontWeight: "600",
-    },
-    listContainer: {
-        marginBottom: 24,
-    },
-    listTitle: {
-        fontSize: 20,
-        fontWeight: "600",
-        color: "#fff",
-        marginBottom: 16,
-    },
-    list: {
-        flex: 1,
-    },
-    enquiryItem: {
-        borderRadius: 12,
-        marginBottom: 12,
+    searchInput: { flex: 1, padding: 10, color: "#333" },
+    filterRow: { flexDirection: "row", justifyContent: "space-between" },
+    filterChip: {
+        backgroundColor: "#f1f5f9",
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderRadius: 20,
+        borderColor: "#e2e8f0",
         borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.1)",
+    },
+    filterChipText: { fontSize: 12, color: "#64748b", fontWeight: "600" },
+
+    listContent: { padding: 15 },
+    card: {
+        backgroundColor: "#fff",
+        borderRadius: 10,
+        marginBottom: 15,
+        padding: 15,
+        borderWidth: 1,
+        borderColor: "#e2e8f0",
+        elevation: 2,
         shadowColor: "#000",
         shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        elevation: 2,
-        overflow: "hidden",
-    },
-    enquiryContent: {
-        padding: 16,
-    },
-    enquiryHeader: {
-        flexDirection: "row",
-        alignItems: "center",
-        marginBottom: 12,
-    },
-    enquiryInfo: {
-        marginLeft: 12,
-        flex: 1,
-    },
-    customer: {
-        fontSize: 16,
-        fontWeight: "600",
-        color: "#fff",
-    },
-    enquiryId: {
-        fontSize: 12,
-        color: "#a0a0a0",
-        marginTop: 4,
-    },
-    enquiryDetails: {
-        marginLeft: 36,
-    },
-    detailRow: {
-        flexDirection: "row",
-        alignItems: "center",
-        marginBottom: 8,
-    },
-    detailText: {
-        fontSize: 13,
-        color: "#a0a0a0",
-        marginLeft: 8,
-    },
-    emptyState: {
-        alignItems: "center",
-        justifyContent: "center",
-        paddingVertical: 40,
-    },
-    emptyStateText: {
-        fontSize: 16,
-        color: "#a0a0a0",
-        marginTop: 12,
-    },
-    modalContainer: {
-        flex: 1,
-        paddingTop: Platform.OS === "ios" ? 20 : 0,
-    },
-    modalContent: {
-        flex: 1,
-        padding: 20,
-    },
-    closeButton: {
-        alignSelf: "flex-end",
-        padding: 8,
-        marginBottom: 16,
-    },
-    detailsContainer: {
-        backgroundColor: "rgba(255,255,255,0.05)",
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.1)",
-        borderRadius: 16,
-        padding: 20,
-    },
-    modalTitle: {
-        fontSize: 24,
-        fontWeight: "700",
-        color: "#fff",
-        marginBottom: 20,
-        textAlign: "center",
-    },
-    detailRowContainer: {
-        marginBottom: 16,
-        paddingBottom: 12,
-        borderBottomWidth: 1,
-        borderBottomColor: "rgba(255,255,255,0.05)",
-    },
-    detailLabel: {
-        fontSize: 12,
-        color: "#a0a0a0",
-        fontWeight: "600",
-        marginBottom: 4,
-    },
-    detailValue: {
-        fontSize: 15,
-        color: "#fff",
-        fontWeight: "500",
-    },
-    listHeaderContainer: {
-        flexDirection: "row",
-        justifyContent: "space-between",
-        alignItems: "center",
-        marginBottom: 16,
-    },
-    refreshButton: {
-        padding: 8,
-        borderRadius: 8,
-        backgroundColor: "rgba(102,126,234,0.2)",
-    },
-    loadingState: {
-        alignItems: "center",
-        justifyContent: "center",
-        paddingVertical: 40,
-    },
-    loadingText: {
-        fontSize: 14,
-        color: "#a0a0a0",
-        marginTop: 12,
-    },
-    emptyStateSubtext: {
-        fontSize: 12,
-        color: "#7a7a7a",
-        marginTop: 8,
-        textAlign: "center",
-    },
-    enquiryItemWrapper: {
-        marginBottom: 12,
-        position: "relative",
-    },
-    deleteButton: {
-        position: "absolute",
-        right: 12,
-        top: 12,
-        padding: 8,
-        borderRadius: 8,
-        backgroundColor: "rgba(255,107,107,0.2)",
-    },
-    recentEnquiryContainer: {
-        marginBottom: 24,
-    },
-    recentEnquiryLabel: {
-        fontSize: 14,
-        fontWeight: "600",
-        color: "#a0a0a0",
-        marginBottom: 12,
-        textTransform: "uppercase",
-        letterSpacing: 0.5,
-    },
-    minimalCard: {
-        backgroundColor: "rgba(26,26,46,0.6)",
-        borderRadius: 12,
-        paddingLeft: 16,
-        paddingRight: 16,
-        paddingBottom: 16,
-        paddingTop: 50,
-        borderLeftWidth: 4,
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.15,
-        shadowRadius: 4,
-        elevation: 2,
-        position: "relative",
-    },
-    cardActionIcons: {
-        position: "absolute",
-        right: 12,
-        top: 12,
-        flexDirection: "row",
-        gap: 8,
-        zIndex: 100,
+        shadowOpacity: 0.05,
+        shadowRadius: 3,
     },
     cardHeader: {
         flexDirection: "row",
         justifyContent: "space-between",
         alignItems: "flex-start",
-        marginBottom: 12,
+        marginBottom: 10,
     },
-    cardCustomerName: {
-        fontSize: 16,
-        fontWeight: "600",
-        color: "#fff",
-        marginBottom: 4,
-    },
-    cardEnquiryId: {
-        fontSize: 12,
-        color: "#7a7a7a",
-    },
-    cardBadge: {
-        paddingHorizontal: 10,
-        paddingVertical: 4,
-        backgroundColor: "rgba(102,126,234,0.2)",
-        borderRadius: 6,
-    },
-    cardStatus: {
-        fontSize: 11,
-        fontWeight: "600",
-        color: "#667eea",
-    },
-    cardDivider: {
-        height: 1,
-        backgroundColor: "rgba(255,255,255,0.05)",
-        marginBottom: 12,
-    },
-    cardContent: {
-        gap: 8,
-    },
-    cardField: {
+    enqNo: { fontSize: 16, fontWeight: "bold", color: "#1e293b" },
+    date: { fontSize: 12, color: "#64748b", marginTop: 2 },
+    badge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
+    badgeText: { fontSize: 11, fontWeight: "bold" },
+    cardBody: { marginBottom: 10 },
+    row: { flexDirection: "row", marginBottom: 6 },
+    label: { width: 80, color: "#64748b", fontSize: 13 },
+    value: { flex: 1, color: "#1e293b", fontSize: 14, fontWeight: "500" },
+    valuePrice: { flex: 1, color: "#10b981", fontSize: 14, fontWeight: "bold" },
+    cardActions: {
         flexDirection: "row",
-        justifyContent: "space-between",
-        alignItems: "center",
-    },
-    cardFieldLabel: {
-        fontSize: 12,
-        color: "#7a7a7a",
-        fontWeight: "500",
-    },
-    cardFieldValue: {
-        fontSize: 13,
-        color: "#fff",
-        fontWeight: "500",
-    },
-    minimalActionIcons: {
-        flexDirection: "row",
-        gap: 10,
-        marginTop: 12,
-        justifyContent: "center",
-        alignItems: "center",
-    },
-    minimalIconButton: {
-        width: 40,
-        height: 40,
-        borderRadius: 8,
-        backgroundColor: "rgba(255,255,255,0.05)",
-        justifyContent: "center",
-        alignItems: "center",
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.08)",
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.1,
-        shadowRadius: 2,
-        elevation: 1,
-    },
-    recentEnquiryCard: {
-        borderRadius: 16,
-        padding: 20,
-        borderWidth: 1,
-        borderColor: "rgba(102,126,234,0.3)",
-        shadowColor: "#667eea",
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.15,
-        shadowRadius: 8,
-        elevation: 3,
-    },
-    recentEnquiryHeader: {
-        flexDirection: "row",
-        alignItems: "center",
-        marginBottom: 16,
-        paddingBottom: 12,
-        borderBottomWidth: 1,
-        borderBottomColor: "rgba(102,126,234,0.2)",
-    },
-    recentEnquiryTitle: {
-        fontSize: 18,
-        fontWeight: "700",
-        color: "#667eea",
-        marginLeft: 12,
-    },
-    recentEnquiryDetails: {
-        marginBottom: 0,
-    },
-    recentEnquiryActions: {
-        flexDirection: "row",
-        gap: 12,
-        marginTop: 16,
-        paddingTop: 16,
+        justifyContent: "flex-end",
         borderTopWidth: 1,
-        borderTopColor: "rgba(102,126,234,0.2)",
+        borderTopColor: "#f1f5f9",
+        paddingTop: 10,
     },
-    recentEnquiryActionIcons: {
+    actionBtn: { marginLeft: 15 },
+    emptyText: {
+        textAlign: "center",
+        marginTop: 50,
+        color: "#94a3b8",
+        fontSize: 16,
+    },
+
+    // Add Form Screen
+    subHeader: {
+        backgroundColor: "#2563eb",
+        paddingVertical: 15,
+        paddingHorizontal: 15,
         flexDirection: "row",
-        gap: 12,
-        marginTop: 12,
-        justifyContent: "center",
         alignItems: "center",
+        justifyContent: "space-between",
     },
-    editIconWrapper: {
-        borderRadius: 12,
-        padding: 2,
+    subHeaderTitle: { color: "#fff", fontSize: 18, fontWeight: "bold" },
+    formContainer: { padding: 20, flex: 1 },
+    sectionTitleContainer: { marginBottom: 10, marginTop: 10 },
+    sectionTitle: {
+        color: "#2563eb",
+        fontSize: 16,
+        fontWeight: "bold",
+        textTransform: "uppercase",
+    },
+
+    formRow: { flexDirection: "row", justifyContent: "space-between" },
+    flex1: { flex: 1, marginRight: 10 },
+
+    inputGroup: { marginBottom: 15 },
+    inputLabel: {
+        fontSize: 14,
+        color: "#334155",
+        marginBottom: 5,
+        fontWeight: "600",
+    },
+    input: {
+        backgroundColor: "#fff",
         borderWidth: 1,
-        borderColor: "rgba(0,212,255,0.4)",
-        shadowColor: "#00d4ff",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.3,
-        shadowRadius: 4,
-        elevation: 2,
-    },
-    deleteIconWrapper: {
-        borderRadius: 12,
-        padding: 2,
-        borderWidth: 1,
-        borderColor: "rgba(255,107,107,0.4)",
-        shadowColor: "#ff6b6b",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.3,
-        shadowRadius: 4,
-        elevation: 2,
-    },
-    actionIconButton: {
-        padding: 10,
-        borderRadius: 10,
-        justifyContent: "center",
-        alignItems: "center",
-        width: 44,
-        height: 44,
-    },
-    iconButton: {
-        padding: 10,
+        borderColor: "#cbd5e1",
         borderRadius: 8,
-        backgroundColor: "rgba(255,255,255,0.1)",
+        padding: 12,
+        fontSize: 14,
+        color: "#1e293b",
+    },
+    inputReadOnly: { backgroundColor: "#f1f5f9", color: "#64748b" },
+
+    formButtons: {
+        flexDirection: "row",
+        justifyContent: "flex-end",
+        marginTop: 20,
+        marginBottom: 40,
+    },
+    btnSecondary: {
+        padding: 12,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: "#cbd5e1",
+        marginRight: 10,
+        backgroundColor: "#fff",
+    },
+    btnSecondaryText: { color: "#64748b", fontWeight: "bold" },
+    btnPrimary: {
+        flexDirection: "row",
+        alignItems: "center",
+        backgroundColor: "#2563eb",
+        padding: 12,
+        borderRadius: 8,
+    },
+    btnPrimaryText: { color: "#fff", fontWeight: "bold", marginLeft: 5 },
+
+    // Modal
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: "rgba(0,0,0,0.5)",
         justifyContent: "center",
         alignItems: "center",
     },
+    modalCard: {
+        backgroundColor: "#fff",
+        width: "85%",
+        borderRadius: 15,
+        padding: 25,
+        alignItems: "center",
+    },
+    modalIconContainer: {
+        backgroundColor: "#dbeafe",
+        width: 60,
+        height: 60,
+        borderRadius: 30,
+        justifyContent: "center",
+        alignItems: "center",
+        marginBottom: 15,
+    },
+    modalTitle: { fontSize: 18, fontWeight: "bold", marginBottom: 10 },
+    modalMessage: {
+        textAlign: "center",
+        color: "#64748b",
+        marginBottom: 25,
+        fontSize: 14,
+    },
+    modalActions: {
+        flexDirection: "row",
+        width: "100%",
+        justifyContent: "space-between",
+    },
+    modalBtn: {
+        flex: 1,
+        padding: 12,
+        borderRadius: 8,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    modalBtnNo: { backgroundColor: "#f1f5f9", marginRight: 10 },
+    modalBtnNoText: { color: "#475569", fontWeight: "bold" },
+    modalBtnYes: { backgroundColor: "#2563eb", marginLeft: 10 },
+    modalBtnYesText: { color: "#fff", fontWeight: "bold" },
 });
