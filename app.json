@@ -14,7 +14,8 @@
       "supportsTablet": true
     },
     "web": {
-      "output": "single"
+      "output": "single",
+      "bundler": "metro"
     },
     "extra": {
       "eas": {

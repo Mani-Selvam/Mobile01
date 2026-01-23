@@ -19,8 +19,8 @@ app.get("/", (req, res) => {
     res.send("CRM API is running...");
 });
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.API_PORT || 3000;
 
-app.listen(PORT, () => {
+app.listen(PORT, "localhost", () => {
     console.log(`Server started on port ${PORT}`);
 });
