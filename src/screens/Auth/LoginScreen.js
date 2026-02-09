@@ -17,6 +17,7 @@ import * as AuthSession from "expo-auth-session";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import { useAuth } from "../../contexts/AuthContext";
+import { API_URL } from "../../services/apiConfig";
 
 const LoginScreen = ({ navigation }) => {
     const { login } = useAuth();
@@ -24,7 +25,7 @@ const LoginScreen = ({ navigation }) => {
     const [password, setPassword] = useState("");
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
-    const API_URL = "http://192.168.1.33:5000";
+
     const handleLogin = async () => {
         if (!email || !password) {
             Alert.alert("Error", "Please fill in all fields");
@@ -65,7 +66,7 @@ const LoginScreen = ({ navigation }) => {
 
         setLoading(true);
         try {
-            const response = await axios.post(`${API_URL}/api/auth/login`, {
+            const response = await axios.post(`${API_URL}/auth/login`, {
                 email,
                 password,
             });
@@ -84,13 +85,13 @@ const LoginScreen = ({ navigation }) => {
         } catch (error) {
             console.error(
                 "Login error:",
-                error.response?.data || error.message
+                error.response?.data || error.message,
             );
             Alert.alert(
                 "Error",
                 error.response?.data?.errors?.[0]?.msg ||
                     error.response?.data?.message ||
-                    "Login failed"
+                    "Login failed",
             );
         } finally {
             setLoading(false);
@@ -123,14 +124,14 @@ const LoginScreen = ({ navigation }) => {
                     `${API_URL}/api/auth/google`,
                     {
                         idToken: result.params.id_token,
-                    }
+                    },
                 );
 
                 console.log("Google login successful:", response.data);
                 await AsyncStorage.setItem("token", response.data.token);
                 await AsyncStorage.setItem(
                     "user",
-                    JSON.stringify(response.data.user)
+                    JSON.stringify(response.data.user),
                 );
                 Alert.alert("Success", "Google login successful!");
                 navigation.reset({

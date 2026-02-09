@@ -16,6 +16,7 @@ import Animated, { FadeInUp, SlideInRight } from "react-native-reanimated";
 import * as AuthSession from "expo-auth-session";
 import axios from "axios";
 import { useAuth } from "../../contexts/AuthContext";
+import { API_URL } from "../../services/apiConfig";
 
 const SignupScreen = ({ navigation }) => {
     const { login } = useAuth();
@@ -26,7 +27,7 @@ const SignupScreen = ({ navigation }) => {
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
     const [loading, setLoading] = useState(false);
-    const API_URL = "http://192.168.1.33:5000";
+
     const handleSignup = async () => {
         if (!fullName || !email || !password || !confirmPassword) {
             Alert.alert("Error", "Please fill in all fields");
@@ -40,10 +41,11 @@ const SignupScreen = ({ navigation }) => {
 
         setLoading(true);
         try {
-            const response = await axios.post(`${API_URL}/api/auth/register`, {
+            const response = await axios.post(`${API_URL}/auth/signup`, {
                 name: fullName,
                 email,
                 password,
+                confirmPassword,
             });
 
             console.log("Signup successful:", response.data);
@@ -53,7 +55,7 @@ const SignupScreen = ({ navigation }) => {
         } catch (error) {
             Alert.alert(
                 "Error",
-                error.response?.data?.message || "Signup failed"
+                error.response?.data?.message || "Signup failed",
             );
         } finally {
             setLoading(false);
@@ -85,7 +87,7 @@ const SignupScreen = ({ navigation }) => {
                     `${API_URL}/api/auth/google`,
                     {
                         idToken: result.params.id_token,
-                    }
+                    },
                 );
 
                 console.log("Google signup successful:", response.data);
@@ -203,7 +205,7 @@ const SignupScreen = ({ navigation }) => {
 
                         <View style={styles.inputContainer}>
                             <MaterialIcons
-                                name="lock-check"
+                                name="lock-outline"
                                 size={24}
                                 color="#667eea"
                                 style={styles.inputIcon}

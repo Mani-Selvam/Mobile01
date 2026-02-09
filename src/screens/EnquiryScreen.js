@@ -22,6 +22,9 @@ import { API_URL as GLOBAL_API_URL } from "../services/apiConfig";
 // --- CONFIGURATION ---
 const API_URL = `${GLOBAL_API_URL}/enquiries`;
 
+// Enquiry Type Options
+const ENQUIRY_TYPE_OPTIONS = ["Normal", "High", "Medium"];
+
 // --- SUB-COMPONENTS (Moved outside App for stability) ---
 
 // 1. FormInput (Removed Memo to fix focus issue)
@@ -32,10 +35,11 @@ const FormInput = ({
     placeholder,
     keyboardType = "default",
     readOnly = false,
+    isRequired = true,
 }) => (
     <View style={styles.inputGroup}>
         <Text style={styles.inputLabel}>
-            {label} <Text style={{ color: "red" }}>*</Text>
+            {label} {isRequired && <Text style={{ color: "red" }}>*</Text>}
         </Text>
         <TextInput
             style={[styles.input, readOnly && styles.inputReadOnly]}
@@ -54,7 +58,163 @@ const FormInput = ({
     </View>
 );
 
-// 2. AddEnquiryForm (Simplified, no Memo)
+// 1.5 Dropdown Component
+const FormDropdown = ({
+    label,
+    value,
+    onChangeText,
+    options,
+    isRequired = true,
+}) => {
+    const [showDropdown, setShowDropdown] = useState(false);
+
+    return (
+        <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>
+                {label} {isRequired && <Text style={{ color: "red" }}>*</Text>}
+            </Text>
+            <TouchableOpacity
+                style={styles.dropdownButton}
+                onPress={() => setShowDropdown(true)}>
+                <Text
+                    style={[
+                        styles.dropdownButtonText,
+                        !value && styles.placeholderText,
+                    ]}>
+                    {value || `Select ${label}`}
+                </Text>
+                <Ionicons name="chevron-down" size={20} color="#64748b" />
+            </TouchableOpacity>
+
+            <Modal
+                visible={showDropdown}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setShowDropdown(false)}>
+                <TouchableOpacity
+                    style={styles.dropdownOverlay}
+                    activeOpacity={1}
+                    onPress={() => setShowDropdown(false)}>
+                    <View style={styles.dropdownMenu}>
+                        {options.map((option, index) => (
+                            <TouchableOpacity
+                                key={index}
+                                style={[
+                                    styles.dropdownOption,
+                                    index !== options.length - 1 &&
+                                        styles.dropdownOptionBorder,
+                                    value === option &&
+                                        styles.dropdownOptionSelected,
+                                ]}
+                                onPress={() => {
+                                    onChangeText(option);
+                                    setShowDropdown(false);
+                                }}>
+                                <Text
+                                    style={[
+                                        styles.dropdownOptionText,
+                                        value === option &&
+                                            styles.dropdownOptionSelectedText,
+                                    ]}>
+                                    {option}
+                                </Text>
+                                {value === option && (
+                                    <Ionicons
+                                        name="checkmark"
+                                        size={18}
+                                        color="#2563eb"
+                                    />
+                                )}
+                            </TouchableOpacity>
+                        ))}
+                    </View>
+                </TouchableOpacity>
+            </Modal>
+        </View>
+    );
+};
+
+// 2. ListItem Component (Moved outside for proper handler access)
+const ListItem = ({
+    item,
+    onShowDetails,
+    onEdit,
+    onDelete,
+    onFollowUp,
+    styles,
+    getStatusColor,
+    getStatusTextColor,
+}) => (
+    <View style={styles.card}>
+        <View style={styles.cardHeader}>
+            <View>
+                <Text style={styles.enqNo}>{item.enqNo}</Text>
+                <Text style={styles.date}>{item.date}</Text>
+            </View>
+            <View
+                style={[
+                    styles.badge,
+                    { backgroundColor: getStatusColor(item.status) },
+                ]}>
+                <Text
+                    style={[
+                        styles.badgeText,
+                        { color: getStatusTextColor(item.status) },
+                    ]}>
+                    {item.status}
+                </Text>
+            </View>
+        </View>
+
+        <View style={styles.cardBody}>
+            <View style={styles.row}>
+                <Text style={styles.label}>Customer:</Text>
+                <Text style={styles.value}>{item.name}</Text>
+            </View>
+            <View style={styles.row}>
+                <Text style={styles.label}>Mobile:</Text>
+                <Text style={styles.value}>{item.mobile}</Text>
+            </View>
+            <View style={styles.row}>
+                <Text style={styles.label}>Product:</Text>
+                <Text style={styles.value}>{item.product}</Text>
+            </View>
+            <View style={styles.row}>
+                <Text style={styles.label}>Lead Value:</Text>
+                <Text style={styles.valuePrice}>₹{item.cost}</Text>
+            </View>
+        </View>
+
+        <View style={styles.cardActions}>
+            <TouchableOpacity
+                style={styles.actionBtn}
+                onPress={() => onShowDetails(item)}>
+                <Ionicons name="eye-outline" size={20} color="#64748b" />
+            </TouchableOpacity>
+            <TouchableOpacity
+                style={styles.actionBtn}
+                onPress={() => onEdit(item)}>
+                <Ionicons name="create-outline" size={20} color="#f59e0b" />
+            </TouchableOpacity>
+            <TouchableOpacity
+                style={styles.actionBtn}
+                onPress={() => onDelete(item._id || item.id)}>
+                <Ionicons name="trash-outline" size={20} color="#ef4444" />
+            </TouchableOpacity>
+            <TouchableOpacity
+                style={styles.actionBtn}
+                onPress={() => onFollowUp(item)}>
+                <MaterialIcons
+                    name="follow-the-signs"
+                    size={20}
+                    color="#10b981"
+                />
+            </TouchableOpacity>
+        </View>
+    </View>
+);
+
+// 3. AddEnquiryForm (Simplified, no Memo)
 const AddEnquiryForm = ({
     formData,
     handleFormFieldChange,
@@ -110,11 +270,11 @@ const AddEnquiryForm = ({
 
                 <View style={styles.formRow}>
                     <View style={styles.flex1}>
-                        <FormInput
+                        <FormDropdown
                             label="Enquiry Type"
                             value={formData.enqType}
                             onChangeText={updateField("enqType")}
-                            placeholder="Select Type"
+                            options={ENQUIRY_TYPE_OPTIONS}
                         />
                     </View>
                     <View style={styles.flex1}>
@@ -164,24 +324,6 @@ const AddEnquiryForm = ({
                     onChangeText={updateField("product")}
                     placeholder="Product"
                 />
-                <View style={styles.formRow}>
-                    <View style={styles.flex1}>
-                        <FormInput
-                            label="Variant"
-                            value={formData.variant}
-                            onChangeText={updateField("variant")}
-                            placeholder="Model"
-                        />
-                    </View>
-                    <View style={styles.flex1}>
-                        <FormInput
-                            label="Color"
-                            value={formData.color}
-                            onChangeText={updateField("color")}
-                            placeholder="Color"
-                        />
-                    </View>
-                </View>
 
                 <FormInput
                     label="Approx. Cost (Lead Value)"
@@ -189,12 +331,7 @@ const AddEnquiryForm = ({
                     onChangeText={updateField("cost")}
                     placeholder="0.00"
                     keyboardType="numeric"
-                />
-                <FormInput
-                    label="Payment Method"
-                    value={formData.paymentMethod}
-                    onChangeText={updateField("paymentMethod")}
-                    placeholder="Cash / Credit"
+                    isRequired={false}
                 />
 
                 <View style={styles.formButtons}>
@@ -301,12 +438,7 @@ export default function App() {
     // API: Save Enquiry
     const handleSaveEnquiry = async () => {
         // Basic Validation
-        if (
-            !formData.name ||
-            !formData.mobile ||
-            !formData.product ||
-            !formData.cost
-        ) {
+        if (!formData.name || !formData.mobile || !formData.product) {
             Alert.alert("Error", "Please fill all required fields (*)");
             return;
         }
@@ -391,10 +523,22 @@ export default function App() {
                     onPress: async () => {
                         try {
                             const deleteUrl = `${API_URL}/${id}`;
-                            await fetch(deleteUrl, { method: "DELETE" });
+                            const response = await fetch(deleteUrl, {
+                                method: "DELETE",
+                            });
 
-                            // Remove from local state
-                            setEnquiries(enquiries.filter((e) => e.id !== id));
+                            if (response.ok) {
+                                // Remove from local state using _id
+                                setEnquiries(
+                                    enquiries.filter((e) => e._id !== id),
+                                );
+                                Alert.alert(
+                                    "Success",
+                                    "Enquiry deleted successfully",
+                                );
+                            } else {
+                                Alert.alert("Error", "Could not delete item");
+                            }
                         } catch (error) {
                             Alert.alert("Error", "Could not delete item");
                         }
@@ -402,6 +546,50 @@ export default function App() {
                 },
             ],
         );
+    };
+
+    // Handler: Show Enquiry Details
+    const handleShowDetails = (enquiry) => {
+        Alert.alert(
+            "Enquiry Details",
+            `No: ${enquiry.enqNo}\n\nCustomer: ${enquiry.name}\nMobile: ${enquiry.mobile}\nProduct: ${enquiry.product}\nCost: ₹${enquiry.cost}\nStatus: ${enquiry.status}`,
+            [{ text: "Close", style: "cancel" }],
+        );
+    };
+
+    // Handler: Edit Enquiry
+    const handleEditEnquiry = (enquiry) => {
+        setFormData({
+            enqNo: enquiry.enqNo || "",
+            date: enquiry.date || new Date().toISOString().split("T")[0],
+            enqBy: enquiry.enqBy || "Admin User",
+            enqType: enquiry.enqType || "",
+            source: enquiry.source || "",
+            name: enquiry.name || "",
+            mobile: enquiry.mobile || "",
+            altMobile: enquiry.altMobile || "",
+            address: enquiry.address || "",
+            product: enquiry.product || "",
+            variant: enquiry.variant || "",
+            color: enquiry.color || "",
+            cost: enquiry.cost?.toString() || "",
+            paymentMethod: enquiry.paymentMethod || "",
+        });
+        setScreen("add");
+    };
+
+    // Handler: Add Follow-up
+    const handleAddFollowUp = (enquiry) => {
+        Alert.alert("Add Follow-up", `Add follow-up for: ${enquiry.name}`, [
+            { text: "Cancel", style: "cancel" },
+            {
+                text: "Add",
+                style: "default",
+                onPress: () => {
+                    Alert.alert("Success", "Follow-up feature coming soon!");
+                },
+            },
+        ]);
     };
 
     // --- RENDERERS ---
@@ -435,72 +623,6 @@ export default function App() {
                 return "#475569";
         }
     };
-
-    // --- COMPONENTS ---
-
-    const ListItem = ({ item }) => (
-        <View style={styles.card}>
-            <View style={styles.cardHeader}>
-                <View>
-                    <Text style={styles.enqNo}>{item.enqNo}</Text>
-                    <Text style={styles.date}>{item.date}</Text>
-                </View>
-                <View
-                    style={[
-                        styles.badge,
-                        { backgroundColor: getStatusColor(item.status) },
-                    ]}>
-                    <Text
-                        style={[
-                            styles.badgeText,
-                            { color: getStatusTextColor(item.status) },
-                        ]}>
-                        {item.status}
-                    </Text>
-                </View>
-            </View>
-
-            <View style={styles.cardBody}>
-                <View style={styles.row}>
-                    <Text style={styles.label}>Customer:</Text>
-                    <Text style={styles.value}>{item.name}</Text>
-                </View>
-                <View style={styles.row}>
-                    <Text style={styles.label}>Mobile:</Text>
-                    <Text style={styles.value}>{item.mobile}</Text>
-                </View>
-                <View style={styles.row}>
-                    <Text style={styles.label}>Product:</Text>
-                    <Text style={styles.value}>{item.product}</Text>
-                </View>
-                <View style={styles.row}>
-                    <Text style={styles.label}>Lead Value:</Text>
-                    <Text style={styles.valuePrice}>₹{item.cost}</Text>
-                </View>
-            </View>
-
-            <View style={styles.cardActions}>
-                <TouchableOpacity style={styles.actionBtn}>
-                    <Ionicons name="eye-outline" size={20} color="#64748b" />
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.actionBtn}>
-                    <Ionicons name="create-outline" size={20} color="#f59e0b" />
-                </TouchableOpacity>
-                <TouchableOpacity
-                    style={styles.actionBtn}
-                    onPress={() => handleDelete(item.id)}>
-                    <Ionicons name="trash-outline" size={20} color="#ef4444" />
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.actionBtn}>
-                    <MaterialIcons
-                        name="follow-the-signs"
-                        size={20}
-                        color="#10b981"
-                    />
-                </TouchableOpacity>
-            </View>
-        </View>
-    );
 
     // --- MAIN RETURN ---
 
@@ -599,8 +721,23 @@ export default function App() {
                     {/* Enquiry List */}
                     <FlatList
                         data={enquiries}
-                        keyExtractor={(item) => item.id.toString()}
-                        renderItem={ListItem}
+                        keyExtractor={(item) =>
+                            item._id?.toString() ||
+                            item.id?.toString() ||
+                            Math.random().toString()
+                        }
+                        renderItem={({ item }) => (
+                            <ListItem
+                                item={item}
+                                onShowDetails={handleShowDetails}
+                                onEdit={handleEditEnquiry}
+                                onDelete={handleDelete}
+                                onFollowUp={handleAddFollowUp}
+                                styles={styles}
+                                getStatusColor={getStatusColor}
+                                getStatusTextColor={getStatusTextColor}
+                            />
+                        )}
                         contentContainerStyle={styles.listContent}
                         refreshing={isLoading}
                         onRefresh={fetchEnquiries}
@@ -788,6 +925,60 @@ const styles = StyleSheet.create({
         color: "#1e293b",
     },
     inputReadOnly: { backgroundColor: "#f1f5f9", color: "#64748b" },
+
+    // Dropdown Styles
+    dropdownButton: {
+        backgroundColor: "#fff",
+        borderWidth: 1,
+        borderColor: "#cbd5e1",
+        borderRadius: 8,
+        padding: 12,
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
+    },
+    dropdownButtonText: {
+        fontSize: 14,
+        color: "#1e293b",
+        fontWeight: "500",
+    },
+    placeholderText: {
+        color: "#94a3b8",
+        fontWeight: "400",
+    },
+    dropdownOverlay: {
+        flex: 1,
+        backgroundColor: "rgba(0,0,0,0.3)",
+        justifyContent: "flex-end",
+    },
+    dropdownMenu: {
+        backgroundColor: "#fff",
+        borderTopLeftRadius: 16,
+        borderTopRightRadius: 16,
+        maxHeight: 300,
+    },
+    dropdownOption: {
+        padding: 15,
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
+    },
+    dropdownOptionBorder: {
+        borderBottomWidth: 1,
+        borderBottomColor: "#f1f5f9",
+    },
+    dropdownOptionText: {
+        fontSize: 14,
+        color: "#1e293b",
+        fontWeight: "500",
+    },
+    dropdownOptionSelected: {
+        backgroundColor: "#eff6ff",
+    },
+    dropdownOptionSelectedText: {
+        color: "#2563eb",
+        fontWeight: "bold",
+    },
 
     formButtons: {
         flexDirection: "row",

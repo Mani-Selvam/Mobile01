@@ -19,10 +19,12 @@ import {
 import { Ionicons, MaterialIcons, FontAwesome5 } from "@expo/vector-icons";
 import * as enquiryService from "../services/enquiryService";
 import * as followupService from "../services/followupService";
+import { useAuth } from "../contexts/AuthContext";
 
 const { width } = Dimensions.get("window");
 
-export default function HomeScreen() {
+export default function HomeScreen({ navigation }) {
+    const { logout } = useAuth();
     const [menuVisible, setMenuVisible] = useState(false);
     const [notifications] = useState(3); // Mock notification count
     const [searchQuery, setSearchQuery] = useState("");
@@ -69,10 +71,12 @@ export default function HomeScreen() {
 
     // Calculate counts for Summary Cards
     const getCounts = () => {
-        if (!Array.isArray(enquiries)) return { new: 0, inProgress: 0, converted: 0, closed: 0 };
+        if (!Array.isArray(enquiries))
+            return { new: 0, inProgress: 0, converted: 0, closed: 0 };
         return {
             new: enquiries.filter((e) => e.status === "New").length,
-            inProgress: enquiries.filter((e) => e.status === "In Progress").length,
+            inProgress: enquiries.filter((e) => e.status === "In Progress")
+                .length,
             converted: enquiries.filter((e) => e.status === "Converted").length,
             closed: enquiries.filter((e) => e.status === "Closed").length,
         };
@@ -149,6 +153,7 @@ export default function HomeScreen() {
                             icon="log-out-outline"
                             label="Logout"
                             color="#ef4444"
+                            onPress={handleLogout}
                         />
                     </View>
                 </View>
@@ -156,8 +161,27 @@ export default function HomeScreen() {
         </Modal>
     );
 
-    const MenuItem = ({ icon, label, color = "#334155" }) => (
-        <TouchableOpacity style={styles.menuItem}>
+    const handleLogout = async () => {
+        Alert.alert("Logout", "Are you sure you want to logout?", [
+            {
+                text: "Cancel",
+                onPress: () => setMenuVisible(false),
+                style: "cancel",
+            },
+            {
+                text: "Logout",
+                onPress: async () => {
+                    setMenuVisible(false);
+                    // Just call logout - AppNavigator will handle navigation based on isLoggedIn state
+                    await logout();
+                },
+                style: "destructive",
+            },
+        ]);
+    };
+
+    const MenuItem = ({ icon, label, color = "#334155", onPress }) => (
+        <TouchableOpacity style={styles.menuItem} onPress={onPress}>
             <Ionicons name={icon} size={24} color={color} />
             <Text style={[styles.menuItemText, { color }]}>{label}</Text>
         </TouchableOpacity>
@@ -486,14 +510,24 @@ export default function HomeScreen() {
                     </View>
                 ) : (
                     <View style={styles.listContainer}>
-                        {Array.isArray(searchResults ? searchResults.followUps : followUps) &&
-                            (searchResults ? searchResults.followUps : followUps)
+                        {Array.isArray(
+                            searchResults ? searchResults.followUps : followUps,
+                        ) &&
+                            (searchResults
+                                ? searchResults.followUps
+                                : followUps
+                            )
                                 .slice(0, 5)
                                 .map((item) => (
                                     <FollowUpItem key={item.id} item={item} />
                                 ))}
-                        {(!Array.isArray(searchResults ? searchResults.followUps : followUps) || 
-                          (searchResults ? searchResults.followUps : followUps).length === 0) && (
+                        {(!Array.isArray(
+                            searchResults ? searchResults.followUps : followUps,
+                        ) ||
+                            (searchResults
+                                ? searchResults.followUps
+                                : followUps
+                            ).length === 0) && (
                             <Text style={styles.emptyText}>
                                 No follow-ups scheduled for today.
                             </Text>
@@ -517,12 +551,22 @@ export default function HomeScreen() {
                     </View>
                 ) : (
                     <View style={styles.listContainer}>
-                        {Array.isArray(searchResults ? searchResults.enquiries : enquiries) &&
-                            (searchResults ? searchResults.enquiries : enquiries).map((item) => (
+                        {Array.isArray(
+                            searchResults ? searchResults.enquiries : enquiries,
+                        ) &&
+                            (searchResults
+                                ? searchResults.enquiries
+                                : enquiries
+                            ).map((item) => (
                                 <EnquiryItem key={item.id} item={item} />
                             ))}
-                        {(!Array.isArray(searchResults ? searchResults.enquiries : enquiries) || 
-                          (searchResults ? searchResults.enquiries : enquiries).length === 0) && (
+                        {(!Array.isArray(
+                            searchResults ? searchResults.enquiries : enquiries,
+                        ) ||
+                            (searchResults
+                                ? searchResults.enquiries
+                                : enquiries
+                            ).length === 0) && (
                             <Text style={styles.emptyText}>
                                 No enquiries found.
                             </Text>

@@ -1,67 +1,43 @@
 const express = require("express");
 const router = express.Router();
+const Enquiry = require("../models/Enquiry");
 
-// Mock data storage (in-memory)
-let enquiries = [
-    {
-        id: 1,
-        enqNo: "ENQ-001",
-        name: "Rahul Sharma",
-        mobile: "9876543210",
-        product: "iPhone 15",
-        status: "New",
-        date: "2023-10-25",
-    },
-    {
-        id: 2,
-        enqNo: "ENQ-002",
-        name: "Priya Singh",
-        mobile: "9876543211",
-        product: "Samsung S24",
-        status: "In Progress",
-        date: "2023-10-24",
-    },
-    {
-        id: 3,
-        enqNo: "ENQ-003",
-        name: "Amit Verma",
-        mobile: "9876543212",
-        product: "MacBook Air",
-        status: "Converted",
-        date: "2023-10-20",
-    },
-];
+// Counter for generating enquiry numbers
+let enquiryCounter = 0;
 
-let nextId = 4;
+// Initialize counter from database
+Enquiry.countDocuments().then((count) => {
+    enquiryCounter = count;
+});
 
 // GET ALL ENQUIRIES (With Search/Filter)
-router.get("/", (req, res) => {
+router.get("/", async (req, res) => {
     try {
         const { search, status } = req.query;
-        let filtered = enquiries;
+        let query = {};
 
         // Filter by search
         if (search) {
-            filtered = filtered.filter(
-                (e) =>
-                    e.name.toLowerCase().includes(search.toLowerCase()) ||
-                    e.mobile.includes(search),
-            );
+            query.$or = [
+                { name: { $regex: search, $options: "i" } },
+                { mobile: search },
+            ];
         }
 
         // Filter by status
         if (status && status !== "All") {
-            filtered = filtered.filter((e) => e.status === status);
+            query.status = status;
         }
 
-        res.json(filtered);
+        const enquiries = await Enquiry.find(query).sort({ createdAt: -1 });
+        res.json(enquiries);
     } catch (err) {
         res.status(500).json({ message: err.message });
     }
 });
 
 // ADD NEW ENQUIRY
-router.post("/", (req, res) => {
+router.post("/", async (req, res) => {
     try {
         console.log("POST /enquiries - Body:", req.body);
 
@@ -81,27 +57,33 @@ router.post("/", (req, res) => {
             return res.status(400).json({ message: "Missing required fields" });
         }
 
-        const newEnquiry = {
-            id: nextId++,
-            enqNo: `ENQ-${String(enquiries.length + 1).padStart(3, "0")}`,
+        // Generate enquiry number
+        enquiryCounter++;
+        const enqNo = `ENQ-${String(enquiryCounter).padStart(3, "0")}`;
+
+        const newEnquiry = new Enquiry({
+            enqNo,
             ...req.body,
             date: new Date().toISOString().split("T")[0],
             status: "New",
-        };
+        });
 
-        enquiries.unshift(newEnquiry);
-        console.log("New enquiry created:", newEnquiry);
-        res.status(201).json(newEnquiry);
+        const savedEnquiry = await newEnquiry.save();
+        console.log("✅ New enquiry SAVED to MongoDB:", savedEnquiry);
+        console.log("✅ Enquiry ID:", savedEnquiry._id);
+        console.log("✅ Enquiry Status:", savedEnquiry.status);
+        res.status(201).json(savedEnquiry);
     } catch (err) {
-        console.error("Error in POST /enquiries:", err);
+        console.error("❌ Error in POST /enquiries:", err.message);
+        console.error("❌ Full error:", err);
         res.status(400).json({ message: err.message });
     }
 });
 
 // GET SINGLE ENQUIRY
-router.get("/:id", (req, res) => {
+router.get("/:id", async (req, res) => {
     try {
-        const enquiry = enquiries.find((e) => e.id == req.params.id);
+        const enquiry = await Enquiry.findById(req.params.id);
         if (!enquiry) {
             return res.status(404).json({ message: "Enquiry not found" });
         }
@@ -112,30 +94,30 @@ router.get("/:id", (req, res) => {
 });
 
 // UPDATE ENQUIRY
-router.put("/:id", (req, res) => {
+router.put("/:id", async (req, res) => {
     try {
-        const index = enquiries.findIndex((e) => e.id == req.params.id);
-        if (index === -1) {
+        const enquiry = await Enquiry.findByIdAndUpdate(
+            req.params.id,
+            req.body,
+            { new: true, runValidators: true },
+        );
+        if (!enquiry) {
             return res.status(404).json({ message: "Enquiry not found" });
         }
-
-        enquiries[index] = { ...enquiries[index], ...req.body };
-        res.json(enquiries[index]);
+        res.json(enquiry);
     } catch (err) {
         res.status(400).json({ message: err.message });
     }
 });
 
 // DELETE ENQUIRY
-router.delete("/:id", (req, res) => {
+router.delete("/:id", async (req, res) => {
     try {
-        const index = enquiries.findIndex((e) => e.id == req.params.id);
-        if (index === -1) {
+        const enquiry = await Enquiry.findByIdAndDelete(req.params.id);
+        if (!enquiry) {
             return res.status(404).json({ message: "Enquiry not found" });
         }
-
-        const deleted = enquiries.splice(index, 1);
-        res.json({ message: "Enquiry deleted successfully", data: deleted[0] });
+        res.json({ message: "Enquiry deleted successfully", data: enquiry });
     } catch (err) {
         res.status(500).json({ message: err.message });
     }
