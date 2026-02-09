@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
     StyleSheet,
     Text,
@@ -10,390 +10,298 @@ import {
     ScrollView,
     Alert,
     SafeAreaView,
-    KeyboardAvoidingView,
-    Platform,
-    StatusBar,
     ActivityIndicator,
+    Dimensions,
+    StatusBar,
+    Animated,
+    Easing,
+    Platform,
+    Linking,
 } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 import * as enquiryService from "../services/enquiryService";
 import { API_URL as GLOBAL_API_URL } from "../services/apiConfig";
 
 // --- CONFIGURATION ---
 const API_URL = `${GLOBAL_API_URL}/enquiries`;
+const { width, height } = Dimensions.get("window");
 
-// Enquiry Type Options
 const ENQUIRY_TYPE_OPTIONS = ["Normal", "High", "Medium"];
+const LEAD_SOURCE_OPTIONS = [
+    "Friends",
+    "Employee Referral",
+    "Job Portal",
+    "Social Media",
+    "Consultancy",
+    "Company Website",
+];
 
-// --- SUB-COMPONENTS (Moved outside App for stability) ---
+// --- THEME: SOFT MODERN (OPTIMIZED) ---
+const COLORS = {
+    bgApp: "#F1F5F9", // Slightly darker than pure white for contrast
+    bgCard: "#FFFFFF",
 
-// 1. FormInput (Removed Memo to fix focus issue)
-const FormInput = ({
-    label,
-    value,
-    onChangeText,
-    placeholder,
-    keyboardType = "default",
-    readOnly = false,
-    isRequired = true,
-}) => (
-    <View style={styles.inputGroup}>
-        <Text style={styles.inputLabel}>
-            {label} {isRequired && <Text style={{ color: "red" }}>*</Text>}
-        </Text>
-        <TextInput
-            style={[styles.input, readOnly && styles.inputReadOnly]}
-            value={value}
-            onChangeText={onChangeText}
-            placeholder={placeholder}
-            keyboardType={keyboardType}
-            editable={!readOnly}
-            placeholderTextColor="#94a3b8"
-            selectionColor="#2563eb"
-            multiline={false}
-            maxLength={500}
-            // IMPORTANT: ensure unique key if list of inputs,
-            // but since this is a single component, simple usage is fine.
-        />
-    </View>
-);
+    primary: "#6366F1", // Indigo
+    primaryLight: "#EEF2FF",
 
-// 1.5 Dropdown Component
-const FormDropdown = ({
-    label,
-    value,
-    onChangeText,
-    options,
-    isRequired = true,
-}) => {
-    const [showDropdown, setShowDropdown] = useState(false);
+    secondary: "#EC4899", // Pink
 
-    return (
-        <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>
-                {label} {isRequired && <Text style={{ color: "red" }}>*</Text>}
-            </Text>
-            <TouchableOpacity
-                style={styles.dropdownButton}
-                onPress={() => setShowDropdown(true)}>
-                <Text
-                    style={[
-                        styles.dropdownButtonText,
-                        !value && styles.placeholderText,
-                    ]}>
-                    {value || `Select ${label}`}
-                </Text>
-                <Ionicons name="chevron-down" size={20} color="#64748b" />
-            </TouchableOpacity>
+    textMain: "#1E293B",
+    textMuted: "#64748B",
+    textLight: "#94A3B8",
 
-            <Modal
-                visible={showDropdown}
-                transparent
-                animationType="fade"
-                onRequestClose={() => setShowDropdown(false)}>
-                <TouchableOpacity
-                    style={styles.dropdownOverlay}
-                    activeOpacity={1}
-                    onPress={() => setShowDropdown(false)}>
-                    <View style={styles.dropdownMenu}>
-                        {options.map((option, index) => (
-                            <TouchableOpacity
-                                key={index}
-                                style={[
-                                    styles.dropdownOption,
-                                    index !== options.length - 1 &&
-                                        styles.dropdownOptionBorder,
-                                    value === option &&
-                                        styles.dropdownOptionSelected,
-                                ]}
-                                onPress={() => {
-                                    onChangeText(option);
-                                    setShowDropdown(false);
-                                }}>
-                                <Text
-                                    style={[
-                                        styles.dropdownOptionText,
-                                        value === option &&
-                                            styles.dropdownOptionSelectedText,
-                                    ]}>
-                                    {option}
-                                </Text>
-                                {value === option && (
-                                    <Ionicons
-                                        name="checkmark"
-                                        size={18}
-                                        color="#2563eb"
-                                    />
-                                )}
-                            </TouchableOpacity>
-                        ))}
-                    </View>
-                </TouchableOpacity>
-            </Modal>
-        </View>
-    );
+    border: "#F1F5F9",
+
+    // Status
+    statusNew: { bg: "#DCFCE7", text: "#166534", border: "#86EFAC" },
+    statusProgress: { bg: "#FEF9C3", text: "#854D0E", border: "#FDE047" },
+    statusConverted: { bg: "#F3E8FF", text: "#6B21A8", border: "#D8B4FE" },
+    statusClosed: { bg: "#F8FAFC", text: "#475569", border: "#E2E8F0" },
+    // gentle card variants for visually distinguishing items
+    cardVariants: ["#FFFFFF", "#FBFBFF", "#FFFBF0", "#F7FFF9", "#F5F8FF"],
 };
 
-// 2. ListItem Component (Moved outside for proper handler access)
-const ListItem = ({
+// --- ANIMATION HOOK ---
+const useFadeIn = (delay = 0) => {
+    const opacity = useRef(new Animated.Value(0)).current;
+    const translateY = useRef(new Animated.Value(15)).current;
+
+    useEffect(() => {
+        Animated.parallel([
+            Animated.timing(opacity, {
+                toValue: 1,
+                duration: 500,
+                delay: delay,
+                useNativeDriver: true,
+            }),
+            Animated.timing(translateY, {
+                toValue: 0,
+                duration: 500,
+                delay: delay,
+                useNativeDriver: true,
+                easing: Easing.out(Easing.quad),
+            }),
+        ]).start();
+    }, []);
+
+    return { opacity, translateY };
+};
+
+// Helper: format a Date or date-string to local YYYY-MM-DD (avoids UTC shifts)
+const toLocalIso = (d) => {
+    const date = d ? new Date(d) : new Date();
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+};
+
+// --- REDESIGNED LIST ITEM (COMPACT) ---
+const CompactCard = ({
     item,
+    index,
     onShowDetails,
     onEdit,
     onDelete,
     onFollowUp,
-    styles,
-    getStatusColor,
-    getStatusTextColor,
-}) => (
-    <View style={styles.card}>
-        <View style={styles.cardHeader}>
-            <View>
-                <Text style={styles.enqNo}>{item.enqNo}</Text>
-                <Text style={styles.date}>{item.date}</Text>
-            </View>
-            <View
-                style={[
-                    styles.badge,
-                    { backgroundColor: getStatusColor(item.status) },
-                ]}>
-                <Text
-                    style={[
-                        styles.badgeText,
-                        { color: getStatusTextColor(item.status) },
-                    ]}>
-                    {item.status}
-                </Text>
-            </View>
-        </View>
-
-        <View style={styles.cardBody}>
-            <View style={styles.row}>
-                <Text style={styles.label}>Customer:</Text>
-                <Text style={styles.value}>{item.name}</Text>
-            </View>
-            <View style={styles.row}>
-                <Text style={styles.label}>Mobile:</Text>
-                <Text style={styles.value}>{item.mobile}</Text>
-            </View>
-            <View style={styles.row}>
-                <Text style={styles.label}>Product:</Text>
-                <Text style={styles.value}>{item.product}</Text>
-            </View>
-            <View style={styles.row}>
-                <Text style={styles.label}>Lead Value:</Text>
-                <Text style={styles.valuePrice}>₹{item.cost}</Text>
-            </View>
-        </View>
-
-        <View style={styles.cardActions}>
-            <TouchableOpacity
-                style={styles.actionBtn}
-                onPress={() => onShowDetails(item)}>
-                <Ionicons name="eye-outline" size={20} color="#64748b" />
-            </TouchableOpacity>
-            <TouchableOpacity
-                style={styles.actionBtn}
-                onPress={() => onEdit(item)}>
-                <Ionicons name="create-outline" size={20} color="#f59e0b" />
-            </TouchableOpacity>
-            <TouchableOpacity
-                style={styles.actionBtn}
-                onPress={() => onDelete(item._id || item.id)}>
-                <Ionicons name="trash-outline" size={20} color="#ef4444" />
-            </TouchableOpacity>
-            <TouchableOpacity
-                style={styles.actionBtn}
-                onPress={() => onFollowUp(item)}>
-                <MaterialIcons
-                    name="follow-the-signs"
-                    size={20}
-                    color="#10b981"
-                />
-            </TouchableOpacity>
-        </View>
-    </View>
-);
-
-// 3. AddEnquiryForm (Simplified, no Memo)
-const AddEnquiryForm = ({
-    formData,
-    handleFormFieldChange,
-    onBack,
-    onSave,
+    onCall,
+    onWhatsApp,
 }) => {
-    // Create stable handlers here to avoid prop mismatch issues
-    const updateField = (field) => (text) => handleFormFieldChange(field, text);
+    const { opacity, translateY } = useFadeIn(index * 30);
+    const scaleValue = useRef(new Animated.Value(1)).current;
+
+    const handlePressIn = () =>
+        Animated.spring(scaleValue, {
+            toValue: 0.98,
+            useNativeDriver: true,
+        }).start();
+    const handlePressOut = () =>
+        Animated.spring(scaleValue, {
+            toValue: 1,
+            useNativeDriver: true,
+        }).start();
+
+    const initials = item.name ? item.name.substring(0, 2).toUpperCase() : "NA";
+    const bgColor = COLORS.cardVariants[index % COLORS.cardVariants.length];
+    // derive a display date for the card (createdAt/date/enqDate or from ObjectId)
+    const getItemDate = (it) => {
+        if (!it) return null;
+        if (it.createdAt) return toLocalIso(it.createdAt);
+        if (it.date) return toLocalIso(it.date);
+        if (it.enqDate) return toLocalIso(it.enqDate);
+        if (it._id && it._id.length >= 8) {
+            try {
+                const hex = it._id.substring(0, 8);
+                const ts = parseInt(hex, 16) * 1000;
+                return toLocalIso(new Date(ts));
+            } catch (e) {
+                return null;
+            }
+        }
+        return null;
+    };
+    const rawDate = getItemDate(item);
+    const dateLabel = rawDate ? new Date(rawDate).toLocaleDateString() : "";
 
     return (
-        <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : "height"}
-            style={{ flex: 1 }}>
-            <View style={styles.subHeader}>
-                <TouchableOpacity onPress={onBack}>
-                    <Ionicons name="arrow-back" size={24} color="#fff" />
-                </TouchableOpacity>
-                <Text style={styles.subHeaderTitle}>Add Enquiry</Text>
-                <View style={{ width: 24 }} />
-            </View>
-
-            <ScrollView
-                style={styles.formContainer}
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-                scrollEnabled={true}>
-                {/* Auto Fields */}
-                <View style={styles.sectionTitleContainer}>
-                    <Text style={styles.sectionTitle}>System Details</Text>
-                </View>
-                <View style={styles.formRow}>
-                    <View style={styles.flex1}>
-                        <FormInput
-                            label="Enquiry No"
-                            value="Auto Generated"
-                            readOnly
-                        />
+        <Animated.View
+            style={[
+                styles.cardWrapper,
+                { opacity, transform: [{ translateY }, { scale: scaleValue }] },
+            ]}>
+            <TouchableOpacity
+                activeOpacity={1}
+                onPressIn={handlePressIn}
+                onPressOut={handlePressOut}
+                onPress={() => onShowDetails(item)}
+                style={[styles.card, { backgroundColor: bgColor }]}>
+                {/* Top Section: Avatar, Name, Status */}
+                <View style={styles.cardTopRow}>
+                    <View style={styles.avatarSmall}>
+                        <Text style={styles.avatarTextSmall}>{initials}</Text>
                     </View>
-                    <View style={styles.flex1}>
-                        <FormInput
-                            label="Date"
-                            value={formData.date}
-                            readOnly
-                        />
+                    <View style={styles.nameBlock}>
+                        <Text style={styles.cardName} numberOfLines={1}>
+                            {item.name}
+                        </Text>
+                        <Text style={styles.cardMeta}>
+                            {item.enqNo || `ID: ${item._id?.substr(-4)}`}
+                        </Text>
+                        {dateLabel ? (
+                            <Text style={styles.cardDate}>{dateLabel}</Text>
+                        ) : null}
                     </View>
-                </View>
-                <FormInput label="Enquiry By" value={formData.enqBy} readOnly />
-
-                {/* User Inputs */}
-                <View style={styles.sectionTitleContainer}>
-                    <Text style={styles.sectionTitle}>Customer Details</Text>
+                    {/* status removed per user request */}
                 </View>
 
-                <View style={styles.formRow}>
-                    <View style={styles.flex1}>
-                        <FormDropdown
-                            label="Enquiry Type"
-                            value={formData.enqType}
-                            onChangeText={updateField("enqType")}
-                            options={ENQUIRY_TYPE_OPTIONS}
+                {/* Middle Section: Product Info */}
+                <View style={styles.infoRow}>
+                    <View style={styles.infoItem}>
+                        <Ionicons
+                            name="cube-outline"
+                            size={14}
+                            color={COLORS.textLight}
                         />
+                        <Text style={styles.infoText} numberOfLines={1}>
+                            {item.product}
+                        </Text>
                     </View>
-                    <View style={styles.flex1}>
-                        <FormInput
-                            label="Lead Source"
-                            value={formData.source}
-                            onChangeText={updateField("source")}
-                            placeholder="Source"
+                    <View style={styles.infoItem}>
+                        <Ionicons
+                            name="call-outline"
+                            size={14}
+                            color={COLORS.textLight}
                         />
+                        <Text style={styles.infoText}>{item.mobile}</Text>
                     </View>
                 </View>
 
-                <FormInput
-                    label="Customer Name"
-                    value={formData.name}
-                    onChangeText={updateField("name")}
-                    placeholder="Full Name"
-                />
-                <FormInput
-                    label="Mobile No"
-                    value={formData.mobile}
-                    onChangeText={updateField("mobile")}
-                    placeholder="10 Digit Mobile"
-                    keyboardType="numeric"
-                />
-                <FormInput
-                    label="Alt. Mobile"
-                    value={formData.altMobile}
-                    onChangeText={updateField("altMobile")}
-                    placeholder="Alternate Mobile"
-                    keyboardType="numeric"
-                />
-                <FormInput
-                    label="Address"
-                    value={formData.address}
-                    onChangeText={updateField("address")}
-                    placeholder="Full Address"
-                />
-
-                <View style={styles.sectionTitleContainer}>
-                    <Text style={styles.sectionTitle}>Product Details</Text>
-                </View>
-
-                <FormInput
-                    label="Product Name"
-                    value={formData.product}
-                    onChangeText={updateField("product")}
-                    placeholder="Product"
-                />
-
-                <FormInput
-                    label="Approx. Cost (Lead Value)"
-                    value={formData.cost}
-                    onChangeText={updateField("cost")}
-                    placeholder="0.00"
-                    keyboardType="numeric"
-                    isRequired={false}
-                />
-
-                <View style={styles.formButtons}>
+                {/* Bottom Section: Action Strip */}
+                <View style={styles.actionStrip}>
                     <TouchableOpacity
-                        style={styles.btnSecondary}
-                        onPress={onBack}>
-                        <Text style={styles.btnSecondaryText}>Cancel</Text>
+                        style={styles.actionBtn}
+                        onPress={() => onCall(item.mobile)}>
+                        <Ionicons name="call" size={18} color="#10B981" />
+                        <Text style={styles.actionBtnText}>Call</Text>
                     </TouchableOpacity>
+                    <View style={styles.actionDivider} />
                     <TouchableOpacity
-                        style={styles.btnPrimary}
-                        onPress={onSave}>
-                        <Ionicons name="save-outline" size={20} color="#fff" />
-                        <Text style={styles.btnPrimaryText}>Save Enquiry</Text>
+                        style={styles.actionBtn}
+                        onPress={() => onWhatsApp(item.mobile)}>
+                        <Ionicons
+                            name="logo-whatsapp"
+                            size={18}
+                            color="#25D366"
+                        />
+                        <Text style={styles.actionBtnText}>Chat</Text>
+                    </TouchableOpacity>
+                    <View style={styles.actionDivider} />
+                    <TouchableOpacity
+                        style={styles.actionBtn}
+                        onPress={() => onEdit(item)}>
+                        <Ionicons
+                            name="create-outline"
+                            size={18}
+                            color={COLORS.primary}
+                        />
+                        <Text style={styles.actionBtnText}>Edit</Text>
+                    </TouchableOpacity>
+                    <View style={styles.actionDivider} />
+                    <TouchableOpacity
+                        style={styles.actionBtn}
+                        onPress={() => onFollowUp(item)}>
+                        <MaterialIcons
+                            name="follow-the-signs"
+                            size={18}
+                            color={COLORS.primary}
+                        />
+                        <Text style={styles.actionBtnText}>Follow</Text>
                     </TouchableOpacity>
                 </View>
-            </ScrollView>
-        </KeyboardAvoidingView>
+            </TouchableOpacity>
+        </Animated.View>
     );
 };
 
-// --- MAIN APP COMPONENT ---
-export default function App() {
-    const [screen, setScreen] = useState("list"); // 'list' or 'add'
+// --- MAIN SCREEN ---
+export default function EnquiryListScreen({ navigation }) {
     const [enquiries, setEnquiries] = useState([]);
     const [searchQuery, setSearchQuery] = useState("");
-    const [filterStatus, setFilterStatus] = useState("All");
     const [isLoading, setIsLoading] = useState(true);
+    const [detailsModal, setDetailsModal] = useState(false);
+    const [selectedEnquiry, setSelectedEnquiry] = useState(null);
+    const [userName, setUserName] = useState(null);
+    const [selectedDate, setSelectedDate] = useState(null);
+    const [datePickerVisible, setDatePickerVisible] = useState(false);
+    const [calendarMonth, setCalendarMonth] = useState(new Date());
 
-    // Form State
-    const [formData, setFormData] = useState({
-        enqNo: "",
-        date: "",
-        enqBy: "Admin User",
-        enqType: "",
-        source: "",
-        name: "",
-        mobile: "",
-        altMobile: "",
-        address: "",
-        product: "",
-        variant: "",
-        color: "",
-        cost: "",
-        paymentMethod: "",
-    });
+    // FAB Animation
+    const fabScale = useRef(new Animated.Value(1)).current;
 
-    // Modal State
-    const [showFollowUpModal, setShowFollowUpModal] = useState(false);
-
-    // --- EFFECTS ---
-
-    // 1. Fetch data on load, and whenever Search or Filter changes
     useEffect(() => {
         fetchEnquiries();
-        // Set initial date for form
-        const today = new Date().toISOString().split("T")[0];
-        setFormData((prev) => ({ ...prev, date: today }));
-    }, [searchQuery, filterStatus]);
+        const unsubscribe = navigation.addListener("focus", () =>
+            fetchEnquiries(),
+        );
+        // load logged-in user name from storage
+        const loadUser = async () => {
+            try {
+                const u = await AsyncStorage.getItem("user");
+                if (u) {
+                    const parsed = JSON.parse(u);
+                    setUserName(
+                        parsed.name ||
+                            parsed.fullName ||
+                            parsed.username ||
+                            null,
+                    );
+                    // default to today (local date)
+                    setSelectedDate(toLocalIso(new Date()));
+                }
+            } catch (err) {
+                console.warn("Error loading user from storage:", err);
+            }
+        };
+        loadUser();
+        return unsubscribe;
+    }, [navigation]);
 
-    // --- HANDLERS ---
+    const animateFab = () => {
+        Animated.sequence([
+            Animated.timing(fabScale, {
+                toValue: 0.9,
+                duration: 100,
+                useNativeDriver: true,
+            }),
+            Animated.spring(fabScale, {
+                toValue: 1,
+                friction: 3,
+                useNativeDriver: true,
+            }),
+        ]).start();
+    };
 
-    // API: Fetch Enquiries
     const fetchEnquiries = async () => {
         try {
             const data = await enquiryService.getAllEnquiries();
@@ -401,398 +309,456 @@ export default function App() {
             setIsLoading(false);
         } catch (error) {
             console.error("Error fetching data:", error);
-            Alert.alert("Error", "Could not connect to server");
             setIsLoading(false);
         }
     };
 
-    // Memoized form field update handler
-    const handleFormFieldChange = useCallback((field, value) => {
-        setFormData((prev) => ({ ...prev, [field]: value }));
-    }, []);
-
-    const handleResetForm = () => {
-        setFormData({
-            enqNo: "", // Server will generate this
-            date: new Date().toISOString().split("T")[0],
-            enqBy: "Admin User",
-            enqType: "",
-            source: "",
-            name: "",
-            mobile: "",
-            altMobile: "",
-            address: "",
-            product: "",
-            variant: "",
-            color: "",
-            cost: "",
-            paymentMethod: "",
-        });
-    };
-
-    const handleAddEnquiryPress = () => {
-        handleResetForm();
-        setScreen("add");
-    };
-
-    // API: Save Enquiry
-    const handleSaveEnquiry = async () => {
-        // Basic Validation
-        if (!formData.name || !formData.mobile || !formData.product) {
-            Alert.alert("Error", "Please fill all required fields (*)");
-            return;
-        }
-
-        try {
-            console.log("Saving enquiry with data:", formData);
-
-            // Convert cost to number for API consistency
-            const payload = {
-                name: formData.name,
-                mobile: formData.mobile,
-                product: formData.product,
-                cost: parseFloat(formData.cost) || 0,
-            };
-
-            console.log("Sending payload:", payload);
-
-            // Use direct fetch to test (bypass axios/service)
-            const response = await fetch(API_URL, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify(payload),
-            });
-
-            console.log("Response status:", response.status);
-            const newEnquiry = await response.json();
-            console.log("Response data:", newEnquiry);
-
-            if (response.ok) {
-                console.log("Enquiry saved successfully:", newEnquiry);
-
-                // Add to new enquiry to top of list locally (Optimistic UI)
-                setEnquiries([newEnquiry, ...enquiries]);
-
-                // Reset form
-                handleResetForm();
-
-                // Show success and follow-up popup
-                setShowFollowUpModal(true);
-                Alert.alert("Success", "Enquiry saved successfully!");
-            } else {
-                console.error("Failed to save:", newEnquiry);
-                Alert.alert(
-                    "Error",
-                    newEnquiry.message || "Failed to save enquiry",
-                );
-            }
-        } catch (error) {
-            console.error("Save enquiry error:", error);
-            console.error("Error message:", error.message);
-
-            Alert.alert(
-                "Error",
-                error.message || "Failed to save enquiry. Please try again.",
-            );
-        }
-    };
-
-    const handleFollowUpResponse = (response) => {
-        setShowFollowUpModal(false);
-        if (response === "no") {
-            setScreen("list");
-        } else {
-            // Logic to navigate to Follow-up screen would go here
-            Alert.alert("Success", "Navigate to Follow-up Screen");
-            setScreen("list");
-        }
-    };
-
-    // API: Delete Enquiry
     const handleDelete = (id) => {
-        Alert.alert(
-            "Confirm Delete",
-            "Are you sure you want to delete this enquiry?",
-            [
-                { text: "Cancel", style: "cancel" },
-                {
-                    text: "Delete",
-                    style: "destructive",
-                    onPress: async () => {
-                        try {
-                            const deleteUrl = `${API_URL}/${id}`;
-                            const response = await fetch(deleteUrl, {
-                                method: "DELETE",
-                            });
-
-                            if (response.ok) {
-                                // Remove from local state using _id
-                                setEnquiries(
-                                    enquiries.filter((e) => e._id !== id),
-                                );
-                                Alert.alert(
-                                    "Success",
-                                    "Enquiry deleted successfully",
-                                );
-                            } else {
-                                Alert.alert("Error", "Could not delete item");
-                            }
-                        } catch (error) {
-                            Alert.alert("Error", "Could not delete item");
-                        }
-                    },
-                },
-            ],
-        );
-    };
-
-    // Handler: Show Enquiry Details
-    const handleShowDetails = (enquiry) => {
-        Alert.alert(
-            "Enquiry Details",
-            `No: ${enquiry.enqNo}\n\nCustomer: ${enquiry.name}\nMobile: ${enquiry.mobile}\nProduct: ${enquiry.product}\nCost: ₹${enquiry.cost}\nStatus: ${enquiry.status}`,
-            [{ text: "Close", style: "cancel" }],
-        );
-    };
-
-    // Handler: Edit Enquiry
-    const handleEditEnquiry = (enquiry) => {
-        setFormData({
-            enqNo: enquiry.enqNo || "",
-            date: enquiry.date || new Date().toISOString().split("T")[0],
-            enqBy: enquiry.enqBy || "Admin User",
-            enqType: enquiry.enqType || "",
-            source: enquiry.source || "",
-            name: enquiry.name || "",
-            mobile: enquiry.mobile || "",
-            altMobile: enquiry.altMobile || "",
-            address: enquiry.address || "",
-            product: enquiry.product || "",
-            variant: enquiry.variant || "",
-            color: enquiry.color || "",
-            cost: enquiry.cost?.toString() || "",
-            paymentMethod: enquiry.paymentMethod || "",
-        });
-        setScreen("add");
-    };
-
-    // Handler: Add Follow-up
-    const handleAddFollowUp = (enquiry) => {
-        Alert.alert("Add Follow-up", `Add follow-up for: ${enquiry.name}`, [
+        Alert.alert("Delete Enquiry", "This action cannot be undone.", [
             { text: "Cancel", style: "cancel" },
             {
-                text: "Add",
-                style: "default",
-                onPress: () => {
-                    Alert.alert("Success", "Follow-up feature coming soon!");
+                text: "Delete",
+                style: "destructive",
+                onPress: async () => {
+                    await fetch(`${API_URL}/${id}`, { method: "DELETE" });
+                    setEnquiries(enquiries.filter((e) => e._id !== id));
                 },
             },
         ]);
     };
 
-    // --- RENDERERS ---
-
-    const getStatusColor = (status) => {
-        switch (status) {
-            case "New":
-                return "#dbeafe";
-            case "In Progress":
-                return "#fef3c7";
-            case "Converted":
-                return "#d1fae5";
-            case "Closed":
-                return "#f1f5f9";
-            default:
-                return "#e2e8f0";
-        }
+    const handleShowDetails = (enquiry) => {
+        setSelectedEnquiry(enquiry);
+        setDetailsModal(true);
     };
 
-    const getStatusTextColor = (status) => {
-        switch (status) {
-            case "New":
-                return "#1e40af";
-            case "In Progress":
-                return "#92400e";
-            case "Converted":
-                return "#065f46";
-            case "Closed":
-                return "#475569";
-            default:
-                return "#475569";
-        }
+    const handleCallEnquiry = (phone) =>
+        phone && Linking.openURL(`tel:${phone}`);
+    const handleWhatsApp = (phone) => {
+        if (!phone) return;
+        Linking.openURL(
+            `whatsapp://send?phone=${phone.replace(/\D/g, "")}`,
+        ).catch(() => Alert.alert("Error", "WhatsApp not installed"));
     };
+    const handleEditEnquiry = (enquiry) =>
+        navigation.navigate("AddEnquiry", { enquiry });
+    const handleAddFollowUp = (enquiry) =>
+        Alert.alert("Follow Up", `Start follow-up for ${enquiry.name}?`);
 
-    // --- MAIN RETURN ---
+    const filteredData = enquiries.filter((item) => {
+        const matchesSearch =
+            item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            item.mobile.includes(searchQuery);
+        if (!selectedDate) return matchesSearch;
+        // determine item date: createdAt, date, or derive from ObjectId (local ISO)
+        const getItemDate = (it) => {
+            if (!it) return null;
+            if (it.createdAt) return toLocalIso(it.createdAt);
+            if (it.date) return toLocalIso(it.date);
+            if (it.enqDate) return toLocalIso(it.enqDate);
+            // derive from Mongo ObjectId if possible
+            if (it._id && it._id.length >= 8) {
+                try {
+                    const hex = it._id.substring(0, 8);
+                    const ts = parseInt(hex, 16) * 1000;
+                    return toLocalIso(new Date(ts));
+                } catch (e) {
+                    return null;
+                }
+            }
+            return null;
+        };
+
+        const itemDate = getItemDate(item);
+        return matchesSearch && itemDate === selectedDate;
+    });
 
     return (
         <SafeAreaView style={styles.container}>
-            <StatusBar barStyle="light-content" />
+            <StatusBar barStyle="dark-content" backgroundColor={COLORS.bgApp} />
 
-            {/* --- LIST SCREEN --- */}
-            {screen === "list" && (
-                <View style={styles.flex1}>
-                    {/* Top Bar */}
-                    <View style={styles.topBar}>
-                        <Text style={styles.topBarTitle}>Enquiries</Text>
-                        <View style={styles.topBarActions}>
-                            <TouchableOpacity
-                                style={styles.iconBtn}
-                                onPress={handleAddEnquiryPress}>
-                                <Ionicons
-                                    name="add-circle"
-                                    size={24}
-                                    color="#fff"
-                                />
-                                <Text style={styles.iconBtnText}>Add</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={styles.iconBtn}>
-                                <Ionicons
-                                    name="download-outline"
-                                    size={20}
-                                    color="#fff"
-                                />
-                            </TouchableOpacity>
-                            <TouchableOpacity style={styles.iconBtn}>
-                                <Ionicons
-                                    name="share-social-outline"
-                                    size={20}
-                                    color="#fff"
-                                />
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-
-                    {/* Filters & Search */}
-                    <View style={styles.filtersContainer}>
-                        <View style={styles.searchRow}>
-                            <Ionicons name="search" size={20} color="#64748b" />
-                            <TextInput
-                                style={styles.searchInput}
-                                placeholder="Search Name / Mobile..."
-                                value={searchQuery}
-                                onChangeText={setSearchQuery}
-                            />
-                        </View>
-                        <View style={styles.filterRow}>
-                            <TouchableOpacity
-                                style={styles.filterChip}
-                                onPress={() => setFilterStatus("All")}>
-                                <Text
-                                    style={[
-                                        styles.filterChipText,
-                                        filterStatus === "All" && {
-                                            color: "#2563eb",
-                                        },
-                                    ]}>
-                                    All Status ▼
-                                </Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={styles.filterChip}
-                                onPress={() => setFilterStatus("New")}>
-                                <Text
-                                    style={[
-                                        styles.filterChipText,
-                                        filterStatus === "New" && {
-                                            color: "#d97706",
-                                        },
-                                    ]}>
-                                    New ▼
-                                </Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={styles.filterChip}
-                                onPress={() => setFilterStatus("In Progress")}>
-                                <Text
-                                    style={[
-                                        styles.filterChipText,
-                                        filterStatus === "In Progress" && {
-                                            color: "#2563eb",
-                                        },
-                                    ]}>
-                                    In Progress ▼
-                                </Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-
-                    {/* Enquiry List */}
-                    <FlatList
-                        data={enquiries}
-                        keyExtractor={(item) =>
-                            item._id?.toString() ||
-                            item.id?.toString() ||
-                            Math.random().toString()
-                        }
-                        renderItem={({ item }) => (
-                            <ListItem
-                                item={item}
-                                onShowDetails={handleShowDetails}
-                                onEdit={handleEditEnquiry}
-                                onDelete={handleDelete}
-                                onFollowUp={handleAddFollowUp}
-                                styles={styles}
-                                getStatusColor={getStatusColor}
-                                getStatusTextColor={getStatusTextColor}
-                            />
-                        )}
-                        contentContainerStyle={styles.listContent}
-                        refreshing={isLoading}
-                        onRefresh={fetchEnquiries}
-                        ListEmptyComponent={
-                            <Text style={styles.emptyText}>
-                                {isLoading
-                                    ? "Loading..."
-                                    : "No enquiries found"}
-                            </Text>
-                        }
-                    />
-                </View>
-            )}
-
-            {/* --- ADD ENQUIRY SCREEN --- */}
-            {screen === "add" && (
-                <AddEnquiryForm
-                    formData={formData}
-                    handleFormFieldChange={handleFormFieldChange}
-                    onBack={() => setScreen("list")}
-                    onSave={handleSaveEnquiry}
-                />
-            )}
-
-            {/* --- FOLLOW UP MODAL --- */}
-            <Modal visible={showFollowUpModal} transparent animationType="fade">
+            {/* MODAL */}
+            <Modal
+                visible={detailsModal}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setDetailsModal(false)}>
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalCard}>
-                        <View style={styles.modalIconContainer}>
-                            <Ionicons
-                                name="timer-outline"
-                                size={40}
-                                color="#2563eb"
-                            />
+                        <View style={styles.modalHeader}>
+                            <Text style={styles.modalTitle}>Details</Text>
+                            <TouchableOpacity
+                                onPress={() => setDetailsModal(false)}>
+                                <Ionicons
+                                    name="close"
+                                    size={24}
+                                    color={COLORS.textMain}
+                                />
+                            </TouchableOpacity>
                         </View>
-                        <Text style={styles.modalTitle}>Follow-up?</Text>
-                        <Text style={styles.modalMessage}>
-                            Do you want to add a follow-up for this enquiry?
-                        </Text>
+                        {selectedEnquiry && (
+                            <ScrollView
+                                contentContainerStyle={styles.modalBody}>
+                                <View style={styles.detailItem}>
+                                    <Text style={styles.dLabel}>Name</Text>
+                                    <Text style={styles.dValue}>
+                                        {selectedEnquiry.name}
+                                    </Text>
+                                </View>
+                                <View style={styles.detailItem}>
+                                    <Text style={styles.dLabel}>Mobile</Text>
+                                    <Text style={styles.dValue}>
+                                        {selectedEnquiry.mobile}
+                                    </Text>
+                                </View>
+                                <View style={styles.detailItem}>
+                                    <Text style={styles.dLabel}>Product</Text>
+                                    <Text style={styles.dValue}>
+                                        {selectedEnquiry.product}
+                                    </Text>
+                                </View>
+                                {/* status hidden per user request */}
+                                {selectedEnquiry.cost && (
+                                    <View style={styles.detailItem}>
+                                        <Text style={styles.dLabel}>Cost</Text>
+                                        <Text style={styles.dValue}>
+                                            ₹{selectedEnquiry.cost}
+                                        </Text>
+                                    </View>
+                                )}
+                            </ScrollView>
+                        )}
+                        <View style={styles.modalFooter}>
+                            <TouchableOpacity
+                                style={[
+                                    styles.mBtn,
+                                    { backgroundColor: "#10B981" },
+                                ]}
+                                onPress={() =>
+                                    handleCallEnquiry(selectedEnquiry?.mobile)
+                                }>
+                                <Ionicons
+                                    name="call"
+                                    color="#fff"
+                                    size={20}
+                                    style={{ marginRight: 5 }}
+                                />
+                                <Text style={styles.mBtnText}>Call</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[
+                                    styles.mBtn,
+                                    { backgroundColor: "#25D366" },
+                                ]}
+                                onPress={() =>
+                                    handleWhatsApp(selectedEnquiry?.mobile)
+                                }>
+                                <Ionicons
+                                    name="logo-whatsapp"
+                                    color="#fff"
+                                    size={20}
+                                    style={{ marginRight: 5 }}
+                                />
+                                <Text style={styles.mBtnText}>WhatsApp</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
 
-                        <View style={styles.modalActions}>
+            {/* HEADER AREA */}
+            <View style={styles.headerSection}>
+                <View style={styles.headerTop}>
+                    <View>
+                        <Text style={styles.greeting}>Hello,</Text>
+                        <Text style={styles.headerTitle}>
+                            {userName ? userName : "Leads Manager"}
+                        </Text>
+                    </View>
+                    <TouchableOpacity style={styles.notifIcon}>
+                        <Ionicons
+                            name="notifications-outline"
+                            size={22}
+                            color={COLORS.textMain}
+                        />
+                        <View style={styles.notifDot} />
+                    </TouchableOpacity>
+                </View>
+
+                {/* SEARCH */}
+                <View style={styles.searchBar}>
+                    <Ionicons
+                        name="search"
+                        size={18}
+                        color={COLORS.textLight}
+                    />
+                    <TextInput
+                        style={styles.searchInput}
+                        placeholder="Search..."
+                        placeholderTextColor={COLORS.textLight}
+                        value={searchQuery}
+                        onChangeText={setSearchQuery}
+                    />
+                    <TouchableOpacity
+                        onPress={() => setDatePickerVisible(true)}
+                        style={styles.calendarBtn}
+                        accessibilityLabel="Select date">
+                        <Ionicons
+                            name="calendar"
+                            size={20}
+                            color={COLORS.primary}
+                        />
+                    </TouchableOpacity>
+                </View>
+
+                {/* filters removed per user request */}
+            </View>
+
+            {/* LIST */}
+            <FlatList
+                data={filteredData}
+                keyExtractor={(item) =>
+                    item._id?.toString() || item.id?.toString()
+                }
+                renderItem={({ item, index }) => (
+                    <CompactCard
+                        item={item}
+                        index={index}
+                        onShowDetails={handleShowDetails}
+                        onEdit={handleEditEnquiry}
+                        onDelete={handleDelete}
+                        onFollowUp={handleAddFollowUp}
+                        onCall={handleCallEnquiry}
+                        onWhatsApp={handleWhatsApp}
+                    />
+                )}
+                contentContainerStyle={styles.listContent}
+                refreshing={isLoading}
+                onRefresh={fetchEnquiries}
+                ListEmptyComponent={
+                    <View style={styles.emptyState}>
+                        <Ionicons
+                            name="file-tray-outline"
+                            size={50}
+                            color={COLORS.textLight}
+                        />
+                        <Text style={styles.emptyText}>No enquiries found</Text>
+                    </View>
+                }
+            />
+
+            <Animated.View style={{ transform: [{ scale: fabScale }] }}>
+                <TouchableOpacity
+                    style={styles.fab}
+                    onPress={() => {
+                        animateFab();
+                        navigation.navigate("AddEnquiry", {
+                            onEnquirySaved: fetchEnquiries,
+                        });
+                    }}>
+                    <Ionicons name="add" size={26} color="#FFF" />
+                </TouchableOpacity>
+            </Animated.View>
+
+            {/* DATE PICKER MODAL (calendar grid) */}
+            <Modal
+                visible={datePickerVisible}
+                transparent
+                animationType="slide"
+                onRequestClose={() => setDatePickerVisible(false)}>
+                <View style={styles.modalOverlay}>
+                    <View
+                        style={[
+                            styles.modalCard,
+                            { width: "92%", maxHeight: "75%" },
+                        ]}>
+                        <View style={styles.modalHeader}>
                             <TouchableOpacity
-                                style={[styles.modalBtn, styles.modalBtnNo]}
-                                onPress={() => handleFollowUpResponse("no")}>
-                                <Text style={styles.modalBtnNoText}>
-                                    No, Go to List
+                                onPress={() => {
+                                    const y = calendarMonth.getFullYear();
+                                    const m = calendarMonth.getMonth();
+                                    setCalendarMonth(new Date(y, m - 1, 1));
+                                }}>
+                                <Ionicons
+                                    name="chevron-back"
+                                    size={22}
+                                    color={COLORS.textMain}
+                                />
+                            </TouchableOpacity>
+                            <Text style={styles.modalTitle}>
+                                {calendarMonth.toLocaleString(undefined, {
+                                    month: "long",
+                                    year: "numeric",
+                                })}
+                            </Text>
+                            <TouchableOpacity
+                                onPress={() => {
+                                    const y = calendarMonth.getFullYear();
+                                    const m = calendarMonth.getMonth();
+                                    setCalendarMonth(new Date(y, m + 1, 1));
+                                }}>
+                                <Ionicons
+                                    name="chevron-forward"
+                                    size={22}
+                                    color={COLORS.textMain}
+                                />
+                            </TouchableOpacity>
+                        </View>
+                        <View style={{ padding: 12 }}>
+                            <TouchableOpacity
+                                style={[
+                                    styles.filterPill,
+                                    { marginBottom: 10 },
+                                ]}
+                                onPress={() => {
+                                    setSelectedDate(null);
+                                    setDatePickerVisible(false);
+                                }}>
+                                <Text
+                                    style={[
+                                        styles.filterText,
+                                        { color: COLORS.textMain },
+                                    ]}>
+                                    Show All Dates
                                 </Text>
                             </TouchableOpacity>
-                            <TouchableOpacity
-                                style={[styles.modalBtn, styles.modalBtnYes]}
-                                onPress={() => handleFollowUpResponse("yes")}>
-                                <Text style={styles.modalBtnYesText}>
-                                    Yes, Add Follow-up
-                                </Text>
-                            </TouchableOpacity>
+
+                            {/* Weekday labels (Mon..Sun) */}
+                            <View
+                                style={{
+                                    flexDirection: "row",
+                                    justifyContent: "space-between",
+                                    paddingHorizontal: 6,
+                                    marginBottom: 8,
+                                }}>
+                                {["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"].map(
+                                    (d) => (
+                                        <Text
+                                            key={d}
+                                            style={{
+                                                width: (width * 0.92 - 24) / 7,
+                                                textAlign: "center",
+                                                color: COLORS.textMuted,
+                                                fontWeight: "700",
+                                            }}>
+                                            {d}
+                                        </Text>
+                                    ),
+                                )}
+                            </View>
+
+                            {/* Calendar grid */}
+                            {(() => {
+                                const y = calendarMonth.getFullYear();
+                                const m = calendarMonth.getMonth();
+                                // start with Monday as first column
+                                const firstDayIndex =
+                                    (new Date(y, m, 1).getDay() + 6) % 7; // 0..6
+                                const daysInMonth = new Date(
+                                    y,
+                                    m + 1,
+                                    0,
+                                ).getDate();
+                                const prevMonthDays = new Date(
+                                    y,
+                                    m,
+                                    0,
+                                ).getDate();
+                                const cells = [];
+                                for (let i = 0; i < 42; i++) {
+                                    const dayNum = i - firstDayIndex + 1;
+                                    let inMonth = true;
+                                    let display = dayNum;
+                                    let cellDate = null;
+                                    if (dayNum <= 0) {
+                                        inMonth = false;
+                                        display = prevMonthDays + dayNum;
+                                    } else if (dayNum > daysInMonth) {
+                                        inMonth = false;
+                                        display = dayNum - daysInMonth;
+                                    } else {
+                                        cellDate = new Date(y, m, dayNum);
+                                    }
+
+                                    const iso = cellDate
+                                        ? toLocalIso(cellDate)
+                                        : null;
+                                    const isSelected =
+                                        iso && selectedDate === iso;
+
+                                    cells.push(
+                                        <TouchableOpacity
+                                            key={`c-${i}`}
+                                            disabled={!inMonth}
+                                            onPress={() => {
+                                                if (!inMonth) return;
+                                                const isoSel = toLocalIso(
+                                                    new Date(y, m, display),
+                                                );
+                                                setSelectedDate(isoSel);
+                                                setDatePickerVisible(false);
+                                            }}
+                                            style={{
+                                                width: (width * 0.92 - 24) / 7,
+                                                height: 44,
+                                                justifyContent: "center",
+                                                alignItems: "center",
+                                                marginBottom: 6,
+                                            }}>
+                                            <View
+                                                style={
+                                                    isSelected
+                                                        ? {
+                                                              width: 36,
+                                                              height: 36,
+                                                              borderRadius: 18,
+                                                              backgroundColor:
+                                                                  "#111",
+                                                              justifyContent:
+                                                                  "center",
+                                                              alignItems:
+                                                                  "center",
+                                                          }
+                                                        : {}
+                                                }>
+                                                <Text
+                                                    style={
+                                                        isSelected
+                                                            ? {
+                                                                  color: "#fff",
+                                                                  fontWeight:
+                                                                      "800",
+                                                              }
+                                                            : {
+                                                                  color: inMonth
+                                                                      ? COLORS.textMain
+                                                                      : COLORS.textLight,
+                                                              }
+                                                    }>
+                                                    {display}
+                                                </Text>
+                                            </View>
+                                        </TouchableOpacity>,
+                                    );
+                                }
+
+                                // render rows of 7
+                                const rows = [];
+                                for (let r = 0; r < 6; r++) {
+                                    rows.push(
+                                        <View
+                                            key={`r-${r}`}
+                                            style={{
+                                                flexDirection: "row",
+                                                justifyContent: "space-between",
+                                                paddingHorizontal: 6,
+                                            }}>
+                                            {cells.slice(r * 7, r * 7 + 7)}
+                                        </View>,
+                                    );
+                                }
+                                return rows;
+                            })()}
                         </View>
                     </View>
                 </View>
@@ -801,253 +767,262 @@ export default function App() {
     );
 }
 
-// --- STYLES ---
+// --- STYLES (OPTIMIZED FOR SPACE & LOOK) ---
 const styles = StyleSheet.create({
-    flex1: { flex: 1 },
-    container: { flex: 1, backgroundColor: "#f1f5f9" },
+    container: { flex: 1, backgroundColor: COLORS.bgApp },
 
-    // List Screen
-    topBar: {
-        backgroundColor: "#2563eb",
-        paddingVertical: 15,
-        paddingHorizontal: 15,
+    // Header & Search
+    headerSection: {
+        paddingTop:
+            Platform.OS === "android" ? StatusBar.currentHeight + 15 : 15,
+        paddingHorizontal: 20,
+        paddingBottom: 10,
+        backgroundColor: "#FFF",
+        borderBottomLeftRadius: 24,
+        borderBottomRightRadius: 24,
+        shadowColor: "#64748B",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.05,
+        shadowRadius: 10,
+        elevation: 4,
+        zIndex: 10,
+    },
+    headerTop: {
         flexDirection: "row",
         justifyContent: "space-between",
         alignItems: "center",
-        elevation: 4,
+        marginBottom: 12,
     },
-    topBarTitle: { color: "#fff", fontSize: 20, fontWeight: "bold" },
-    topBarActions: { flexDirection: "row", alignItems: "center" },
-    iconBtn: { flexDirection: "row", alignItems: "center", marginLeft: 15 },
-    iconBtnText: { color: "#fff", marginLeft: 5, fontWeight: "600" },
+    greeting: { fontSize: 13, color: COLORS.textMuted, fontWeight: "600" },
+    headerTitle: { fontSize: 22, color: COLORS.textMain, fontWeight: "800" },
+    notifIcon: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: COLORS.bgApp,
+        justifyContent: "center",
+        alignItems: "center",
+    },
+    notifDot: {
+        position: "absolute",
+        top: 8,
+        right: 8,
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+        backgroundColor: COLORS.secondary,
+    },
 
-    filtersContainer: { padding: 15, backgroundColor: "#fff" },
-    searchRow: {
+    searchBar: {
         flexDirection: "row",
         alignItems: "center",
-        backgroundColor: "#f1f5f9",
-        borderRadius: 8,
-        paddingHorizontal: 10,
+        backgroundColor: COLORS.bgApp,
+        paddingHorizontal: 12,
+        height: 44,
+        borderRadius: 12,
         marginBottom: 10,
     },
-    searchInput: { flex: 1, padding: 10, color: "#333" },
-    filterRow: { flexDirection: "row", justifyContent: "space-between" },
-    filterChip: {
-        backgroundColor: "#f1f5f9",
-        paddingHorizontal: 12,
-        paddingVertical: 8,
-        borderRadius: 20,
-        borderColor: "#e2e8f0",
-        borderWidth: 1,
+    searchInput: {
+        flex: 1,
+        marginLeft: 8,
+        fontSize: 15,
+        color: COLORS.textMain,
     },
-    filterChipText: { fontSize: 12, color: "#64748b", fontWeight: "600" },
+    calendarBtn: {
+        paddingHorizontal: 8,
+        paddingVertical: 6,
+        marginLeft: 6,
+        borderRadius: 8,
+        backgroundColor: "transparent",
+        justifyContent: "center",
+        alignItems: "center",
+    },
 
-    listContent: { padding: 15 },
-    card: {
-        backgroundColor: "#fff",
-        borderRadius: 10,
-        marginBottom: 15,
-        padding: 15,
+    // COMPACT FILTERS (Space Saver)
+    filterScroll: { maxHeight: 40 }, // Restrict height
+    filterContent: { alignItems: "center", paddingRight: 20 },
+    filterPill: {
+        height: 28, // Reduced height
+        paddingHorizontal: 14, // Reduced padding
+        borderRadius: 14,
+        backgroundColor: COLORS.bgApp,
+        marginRight: 8,
+        justifyContent: "center",
         borderWidth: 1,
-        borderColor: "#e2e8f0",
+        borderColor: "transparent",
+    },
+    filterPillActive: {
+        backgroundColor: COLORS.primary,
+        shadowColor: COLORS.primary,
+        shadowOpacity: 0.3,
+        shadowRadius: 4,
         elevation: 2,
+    },
+    filterText: { fontSize: 12, fontWeight: "600", color: COLORS.textMuted },
+    filterTextActive: { color: "#FFF", fontWeight: "700" },
+
+    // List
+    listContent: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 100 },
+    emptyState: { alignItems: "center", marginTop: 60 },
+    emptyText: { color: COLORS.textLight, marginTop: 10, fontSize: 14 },
+
+    // REDESIGNED CARD
+    cardWrapper: { marginBottom: 12 },
+    card: {
+        backgroundColor: COLORS.bgCard,
+        borderRadius: 16,
+        padding: 12,
+        borderWidth: 1,
+        borderColor: COLORS.border,
         shadowColor: "#000",
         shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 3,
-    },
-    cardHeader: {
-        flexDirection: "row",
-        justifyContent: "space-between",
-        alignItems: "flex-start",
-        marginBottom: 10,
-    },
-    enqNo: { fontSize: 16, fontWeight: "bold", color: "#1e293b" },
-    date: { fontSize: 12, color: "#64748b", marginTop: 2 },
-    badge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
-    badgeText: { fontSize: 11, fontWeight: "bold" },
-    cardBody: { marginBottom: 10 },
-    row: { flexDirection: "row", marginBottom: 6 },
-    label: { width: 80, color: "#64748b", fontSize: 13 },
-    value: { flex: 1, color: "#1e293b", fontSize: 14, fontWeight: "500" },
-    valuePrice: { flex: 1, color: "#10b981", fontSize: 14, fontWeight: "bold" },
-    cardActions: {
-        flexDirection: "row",
-        justifyContent: "flex-end",
-        borderTopWidth: 1,
-        borderTopColor: "#f1f5f9",
-        paddingTop: 10,
-    },
-    actionBtn: { marginLeft: 15 },
-    emptyText: {
-        textAlign: "center",
-        marginTop: 50,
-        color: "#94a3b8",
-        fontSize: 16,
+        shadowOpacity: 0.03,
+        shadowRadius: 8,
+        elevation: 2,
     },
 
-    // Add Form Screen
-    subHeader: {
-        backgroundColor: "#2563eb",
-        paddingVertical: 15,
-        paddingHorizontal: 15,
-        flexDirection: "row",
+    // Card Top
+    cardTopRow: { flexDirection: "row", alignItems: "center", marginBottom: 8 },
+    avatarSmall: {
+        width: 36,
+        height: 36,
+        borderRadius: 10,
+        backgroundColor: COLORS.primaryLight,
+        justifyContent: "center",
         alignItems: "center",
-        justifyContent: "space-between",
+        marginRight: 10,
     },
-    subHeaderTitle: { color: "#fff", fontSize: 18, fontWeight: "bold" },
-    formContainer: { padding: 20, flex: 1 },
-    sectionTitleContainer: { marginBottom: 10, marginTop: 10 },
-    sectionTitle: {
-        color: "#2563eb",
-        fontSize: 16,
-        fontWeight: "bold",
+    avatarTextSmall: { fontSize: 14, fontWeight: "800", color: COLORS.primary },
+    nameBlock: { flex: 1 },
+    cardName: {
+        fontSize: 15,
+        fontWeight: "700",
+        color: COLORS.textMain,
+        marginBottom: 2,
+    },
+    cardMeta: { fontSize: 11, color: COLORS.textLight },
+    statusBadgeSmall: {
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 6,
+        borderWidth: 1,
+        minWidth: 60,
+        alignItems: "center",
+    },
+    statusTextSmall: {
+        fontSize: 10,
+        fontWeight: "800",
         textTransform: "uppercase",
     },
 
-    formRow: { flexDirection: "row", justifyContent: "space-between" },
-    flex1: { flex: 1, marginRight: 10 },
-
-    inputGroup: { marginBottom: 15 },
-    inputLabel: {
-        fontSize: 14,
-        color: "#334155",
-        marginBottom: 5,
-        fontWeight: "600",
-    },
-    input: {
-        backgroundColor: "#fff",
-        borderWidth: 1,
-        borderColor: "#cbd5e1",
-        borderRadius: 8,
-        padding: 12,
-        fontSize: 14,
-        color: "#1e293b",
-    },
-    inputReadOnly: { backgroundColor: "#f1f5f9", color: "#64748b" },
-
-    // Dropdown Styles
-    dropdownButton: {
-        backgroundColor: "#fff",
-        borderWidth: 1,
-        borderColor: "#cbd5e1",
-        borderRadius: 8,
-        padding: 12,
+    // Card Middle
+    infoRow: {
         flexDirection: "row",
-        justifyContent: "space-between",
+        marginBottom: 10,
+        paddingTop: 8,
+        borderTopWidth: 1,
+        borderTopColor: "#F8FAFC",
+    },
+    infoItem: {
+        flexDirection: "row",
         alignItems: "center",
-    },
-    dropdownButtonText: {
-        fontSize: 14,
-        color: "#1e293b",
-        fontWeight: "500",
-    },
-    placeholderText: {
-        color: "#94a3b8",
-        fontWeight: "400",
-    },
-    dropdownOverlay: {
+        marginRight: 15,
         flex: 1,
-        backgroundColor: "rgba(0,0,0,0.3)",
-        justifyContent: "flex-end",
     },
-    dropdownMenu: {
-        backgroundColor: "#fff",
-        borderTopLeftRadius: 16,
-        borderTopRightRadius: 16,
-        maxHeight: 300,
+    infoText: {
+        fontSize: 12,
+        color: COLORS.textMuted,
+        marginLeft: 4,
+        fontWeight: "500",
     },
-    dropdownOption: {
-        padding: 15,
+
+    // Card Bottom Action Strip
+    actionStrip: {
         flexDirection: "row",
         justifyContent: "space-between",
         alignItems: "center",
-    },
-    dropdownOptionBorder: {
-        borderBottomWidth: 1,
-        borderBottomColor: "#f1f5f9",
-    },
-    dropdownOptionText: {
-        fontSize: 14,
-        color: "#1e293b",
-        fontWeight: "500",
-    },
-    dropdownOptionSelected: {
-        backgroundColor: "#eff6ff",
-    },
-    dropdownOptionSelectedText: {
-        color: "#2563eb",
-        fontWeight: "bold",
-    },
-
-    formButtons: {
-        flexDirection: "row",
-        justifyContent: "flex-end",
-        marginTop: 20,
-        marginBottom: 40,
-    },
-    btnSecondary: {
-        padding: 12,
+        backgroundColor: "#F8FAFC",
         borderRadius: 8,
-        borderWidth: 1,
-        borderColor: "#cbd5e1",
-        marginRight: 10,
-        backgroundColor: "#fff",
+        paddingVertical: 6,
+        paddingHorizontal: 4,
     },
-    btnSecondaryText: { color: "#64748b", fontWeight: "bold" },
-    btnPrimary: {
+    actionBtn: {
         flexDirection: "row",
         alignItems: "center",
-        backgroundColor: "#2563eb",
-        padding: 12,
-        borderRadius: 8,
+        paddingVertical: 6,
+        paddingHorizontal: 8,
+        borderRadius: 6,
     },
-    btnPrimaryText: { color: "#fff", fontWeight: "bold", marginLeft: 5 },
+    actionBtnText: {
+        fontSize: 11,
+        fontWeight: "700",
+        marginLeft: 4,
+        color: COLORS.textMuted,
+    },
+    actionDivider: { width: 1, height: 14, backgroundColor: "#E2E8F0" },
+
+    // FAB
+    fab: {
+        position: "absolute",
+        bottom: 24,
+        right: 20,
+        width: 56,
+        height: 56,
+        borderRadius: 28,
+        backgroundColor: COLORS.primary,
+        justifyContent: "center",
+        alignItems: "center",
+        shadowColor: COLORS.primary,
+        shadowOpacity: 0.4,
+        shadowRadius: 10,
+        elevation: 8,
+    },
 
     // Modal
     modalOverlay: {
         flex: 1,
-        backgroundColor: "rgba(0,0,0,0.5)",
+        backgroundColor: "rgba(0,0,0,0.4)",
         justifyContent: "center",
         alignItems: "center",
     },
     modalCard: {
-        backgroundColor: "#fff",
         width: "85%",
-        borderRadius: 15,
-        padding: 25,
-        alignItems: "center",
+        backgroundColor: "#FFF",
+        borderRadius: 20,
+        maxHeight: "70%",
+        elevation: 10,
     },
-    modalIconContainer: {
-        backgroundColor: "#dbeafe",
-        width: 60,
-        height: 60,
-        borderRadius: 30,
-        justifyContent: "center",
-        alignItems: "center",
-        marginBottom: 15,
-    },
-    modalTitle: { fontSize: 18, fontWeight: "bold", marginBottom: 10 },
-    modalMessage: {
-        textAlign: "center",
-        color: "#64748b",
-        marginBottom: 25,
-        fontSize: 14,
-    },
-    modalActions: {
+    modalHeader: {
         flexDirection: "row",
-        width: "100%",
+        justifyContent: "space-between",
+        padding: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: COLORS.border,
+    },
+    modalTitle: { fontSize: 18, fontWeight: "800", color: COLORS.textMain },
+    modalBody: { padding: 16 },
+    detailItem: {
+        marginBottom: 12,
+        flexDirection: "row",
         justifyContent: "space-between",
     },
-    modalBtn: {
-        flex: 1,
-        padding: 12,
-        borderRadius: 8,
-        alignItems: "center",
-        justifyContent: "center",
+    dLabel: { fontSize: 13, color: COLORS.textMuted, fontWeight: "600" },
+    dValue: { fontSize: 14, color: COLORS.textMain, fontWeight: "600" },
+    modalFooter: {
+        flexDirection: "row",
+        padding: 16,
+        gap: 10,
+        borderTopWidth: 1,
+        borderTopColor: COLORS.border,
     },
-    modalBtnNo: { backgroundColor: "#f1f5f9", marginRight: 10 },
-    modalBtnNoText: { color: "#475569", fontWeight: "bold" },
-    modalBtnYes: { backgroundColor: "#2563eb", marginLeft: 10 },
-    modalBtnYesText: { color: "#fff", fontWeight: "bold" },
+    mBtn: {
+        flex: 1,
+        flexDirection: "row",
+        justifyContent: "center",
+        alignItems: "center",
+        paddingVertical: 10,
+        borderRadius: 10,
+    },
+    mBtnText: { color: "#FFF", fontWeight: "700", fontSize: 14 },
+    cardDate: { fontSize: 11, color: COLORS.textLight, marginTop: 4 },
 });

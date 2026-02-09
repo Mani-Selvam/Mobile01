@@ -14,612 +14,253 @@ import {
     Platform,
     StatusBar,
     ActivityIndicator,
+    Dimensions,
 } from "react-native";
 import { Ionicons, MaterialIcons, FontAwesome5 } from "@expo/vector-icons";
 import * as enquiryService from "../services/enquiryService";
 import * as followupService from "../services/followupService";
+import AddFollowUpScreen from "./AddFollowUpScreen";
+
+const { width, height } = Dimensions.get("window");
+
+// --- THEME: CLEAN MODERN LIGHT ---
+const THEME = {
+    bg: "#F3F4F6", // Light Gray Background
+    card: "#FFFFFF", // White Card
+
+    primary: "#3B82F6", // Bright Blue
+    primaryLight: "#EFF6FF", // Light Blue Background
+    primaryText: "#1D4ED8", // Dark Blue Text
+
+    success: "#10B981", // Emerald
+    successLight: "#D1FAE5",
+
+    warning: "#F59E0B", // Amber
+    warningLight: "#FEF3C7",
+
+    danger: "#EF4444", // Red
+    dangerLight: "#FEE2E2",
+
+    textMain: "#111827", // Almost Black
+    textSec: "#6B7280", // Gray
+    textLight: "#9CA3AF", // Light Gray
+
+    border: "#E5E7EB", // Border Gray
+    shadow: "rgba(0, 0, 0, 0.05)",
+};
 
 // --- MAIN APP ---
 export default function App() {
-    // Navigation State
-    const [screen, setScreen] = useState("ENQUIRY_LIST"); // ENQUIRY_LIST, ADD_ENQ, ADD_FOLLOWUP, MY_FOLLOWUPS
+    const [screen, setScreen] = useState("ENQUIRY_LIST");
+    const [previousScreen, setPreviousScreen] = useState("ENQUIRY_LIST");
 
-    // Data State (Initialized empty, fetched from API)
     const [enquiries, setEnquiries] = useState([]);
     const [followUps, setFollowUps] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
 
-    // Form State
     const [selectedEnquiry, setSelectedEnquiry] = useState(null);
     const [followUpForm, setFollowUpForm] = useState({
         date: "",
         time: "",
-        type: "Call",
+        type: "WhatsApp",
         remarks: "",
         nextAction: "Interested",
         isNextRequired: false,
         nextDate: "",
     });
 
-    // My Followups Tab State
-    const [activeTab, setActiveTab] = useState("Today"); // Today, Upcoming, Missed, Completed
+    const [activeTab, setActiveTab] = useState("Today");
 
-    // Import/Export Modal State
-    const [showImportModal, setShowImportModal] = useState(false);
-    const [showExportModal, setShowExportModal] = useState(false);
-    const [importDataPreview, setImportDataPreview] = useState([]);
+    const [showEditModal, setShowEditModal] = useState(false);
+    const [editItem, setEditItem] = useState(null);
+    const [editStatus, setEditStatus] = useState("Followup");
+    const [editRemarks, setEditRemarks] = useState("");
+    const [editNextDate, setEditNextDate] = useState("");
+    const [editAmount, setEditAmount] = useState("");
 
     // --- EFFECTS ---
-
-    // 1. Fetch initial data on load
     useEffect(() => {
         fetchEnquiries();
         fetchFollowUps("Today");
-        // Set initial date for form
-        const today = new Date().toISOString().split("T")[0];
-        setFollowUpForm((prev) => ({ ...prev, date: today }));
     }, []);
 
-    // 2. Refetch follow-ups when Tab changes
     useEffect(() => {
         fetchFollowUps(activeTab);
     }, [activeTab]);
 
-    // --- LOGIC HELPERS ---
-
+    // --- HELPERS ---
     const getStatusColor = (status) => {
         switch (status) {
             case "New":
-                return { bg: "#fef3c7", text: "#d97706" };
+                return {
+                    bg: THEME.warningLight,
+                    text: THEME.warning,
+                    border: THEME.warning,
+                };
             case "In Progress":
-                return { bg: "#dbeafe", text: "#2563eb" };
+                return {
+                    bg: THEME.primaryLight,
+                    text: THEME.primaryText,
+                    border: THEME.primary,
+                };
             case "Converted":
-                return { bg: "#d1fae5", text: "#059669" };
+                return {
+                    bg: THEME.successLight,
+                    text: THEME.success,
+                    border: THEME.success,
+                };
             case "Closed":
-                return { bg: "#f1f5f9", text: "#64748b" };
-            case "Missed":
-                return { bg: "#fee2e2", text: "#dc2626" };
+                return {
+                    bg: THEME.bg,
+                    text: THEME.textSec,
+                    border: THEME.border,
+                };
             default:
-                return { bg: "#f3f4f6", text: "#374151" };
+                return {
+                    bg: THEME.bg,
+                    text: THEME.textSec,
+                    border: THEME.border,
+                };
         }
     };
 
-    const getFilteredFollowUps = () => {
-        // Filtering is now handled by the server, but we keep this helper for UI calculations if needed
-        return followUps;
-    };
-
     // --- API HANDLERS ---
-    // API: Fetch All Enquiries
     const fetchEnquiries = async () => {
         try {
             const data = await enquiryService.getAllEnquiries();
             setEnquiries(data);
             setIsLoading(false);
         } catch (error) {
-            console.error("Error fetching enquiries:", error);
-            Alert.alert("Error", "Could not connect to server");
+            console.error(error);
             setIsLoading(false);
         }
     };
 
-    // API: Fetch Follow-ups (With Tab)
     const fetchFollowUps = async (tab) => {
         try {
             const data = await followupService.getFollowUps(tab);
             setFollowUps(data);
         } catch (error) {
-            console.error("Error fetching follow-ups:", error);
+            console.error(error);
         }
     };
 
-    // API: Start Follow-up (Fetches Enq Details for Auto-fill)
     const handleStartFollowUp = async (enq) => {
         try {
-            // 1. Fetch detailed data for this Enquiry
             const data = await enquiryService.getEnquiryById(enq.id);
-
-            // 2. Set Enquiry for Form Auto-fill
             setSelectedEnquiry(data);
-
-            // 3. Reset Form
-            setFollowUpForm({
-                date: new Date().toISOString().split("T")[0],
-                time: "",
-                type: "Call",
-                remarks: "",
-                nextAction: "Interested",
-                isNextRequired: false,
-                nextDate: "",
-            });
             setScreen("ADD_FOLLOWUP");
         } catch (error) {
-            Alert.alert("Error", "Could not load enquiry details");
+            Alert.alert("Error", "Could not load details");
         }
     };
 
-    // API: Save Follow-up
-    const handleSaveFollowUp = async (addNext = false) => {
-        // Validation
-        if (!followUpForm.remarks) {
-            Alert.alert("Required", "Please enter Discussion / Remarks");
-            return;
-        }
-        if (followUpForm.isNextRequired && !followUpForm.nextDate) {
-            Alert.alert("Required", "Please select Next Follow-up Date");
-            return;
-        }
+    const handleOpenEdit = (item) => {
+        setEditItem(item);
+        setEditRemarks(item.remarks || "");
+        setEditStatus("Followup");
+        setEditNextDate("");
+        setEditAmount("");
+        setShowEditModal(true);
+    };
 
+    const handleSaveEdit = async () => {
+        if (!editItem) return;
         try {
-            // Prepare Payload
-            const payload = {
-                ...followUpForm,
-                enqNo: selectedEnquiry.enqNo,
-                name: selectedEnquiry.name,
+            const validStatuses = ["Followup", "Sales", "Drop"];
+            if (!validStatuses.includes(editStatus)) {
+                return Alert.alert("Error", "Please select a valid status");
+            }
+            if (editStatus === "Followup" && !editNextDate) {
+                return Alert.alert("Required", "Enter next follow-up date");
+            }
+            if (editStatus === "Sales" && !editAmount) {
+                return Alert.alert("Required", "Enter amount");
+            }
+
+            let remarksValue = editRemarks;
+            if (editStatus === "Sales") {
+                remarksValue = editRemarks
+                    ? `${editRemarks} | Sales: ₹${editAmount}`
+                    : `Sales: ₹${editAmount}`;
+            }
+
+            const newFollowUp = {
+                enqNo: editItem.enqNo,
+                name: editItem.name,
+                date: editStatus === "Followup" ? editNextDate : editItem.date,
+                time: "",
+                type: "WhatsApp",
+                remarks: remarksValue,
+                nextAction: editStatus,
             };
 
-            // POST to API
-            await followupService.createFollowUp(payload);
-
-            // Backend automatically updated Enquiry Status.
-            // Now refresh lists to reflect changes.
-            await fetchEnquiries();
-            await fetchFollowUps(activeTab); // Refresh current tab
-
-            if (addNext) {
-                Alert.alert("Success", "Follow-up saved. Ready for next.");
-                setFollowUpForm((prev) => ({
-                    ...prev,
-                    remarks: "",
-                    time: "",
-                }));
-            } else {
-                setScreen("MY_FOLLOWUPS");
-            }
-        } catch (error) {
-            console.error(error);
-            Alert.alert(
-                "Error",
-                "Network error. Please check your connection.",
-            );
+            await followupService.createFollowUp(newFollowUp);
+            setShowEditModal(false);
+            setEditRemarks("");
+            setEditNextDate("");
+            setEditAmount("");
+            setEditStatus("Followup");
+            fetchFollowUps(activeTab);
+            Alert.alert("Success", "Follow-up updated successfully");
+        } catch (e) {
+            console.error("Create follow-up error:", e);
+            Alert.alert("Error", e.response?.data?.message || "Could not save");
         }
     };
 
-    const handleImportSimulate = () => {
-        const mockData = [
-            {
-                enqNo: "ENQ-999",
-                name: "Valid User",
-                mobile: "9988776655",
-                error: false,
-            },
-            {
-                enqNo: "ENQ-",
-                name: "Error Missing No",
-                mobile: "123",
-                error: true,
-            },
-            {
-                enqNo: "ENQ-888",
-                name: "Another User",
-                mobile: "5544332211",
-                error: false,
-            },
-        ];
-        setImportDataPreview(mockData);
-        setShowImportModal(true);
-    };
+    // --- SUB-COMPONENTS ---
 
-    // --- RENDER SUB-COMPONENTS ---
-
-    const TopBar = ({ title, showBack = false }) => (
-        <View style={styles.topBar}>
-            <View style={styles.topBarLeft}>
-                {showBack && (
-                    <TouchableOpacity
-                        onPress={() => setScreen("ENQUIRY_LIST")}
-                        style={{ marginRight: 10 }}>
-                        <Ionicons name="arrow-back" size={24} color="#fff" />
-                    </TouchableOpacity>
-                )}
-                <Text style={styles.topBarTitle}>{title}</Text>
-            </View>
-            <View style={styles.topBarRight}>
-                <TouchableOpacity
-                    style={styles.iconBtn}
-                    onPress={handleImportSimulate}>
-                    <Ionicons name="download-outline" size={22} color="#fff" />
-                </TouchableOpacity>
-                <TouchableOpacity
-                    style={styles.iconBtn}
-                    onPress={() => setShowExportModal(true)}>
-                    <MaterialIcons name="upload" size={22} color="#fff" />
-                </TouchableOpacity>
-            </View>
-        </View>
-    );
-
-    const FollowUpForm = () => (
-        <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : "height"}
-            style={{ flex: 1 }}>
-            <TopBar title="Add Follow-up" showBack />
-
-            <ScrollView
-                style={styles.formContainer}
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-                scrollEnabled={true}>
-                {/* Auto-filled Section */}
-                <View style={styles.card}>
-                    <Text style={styles.cardHeaderLabel}>
-                        Enquiry Details (Auto-filled)
-                    </Text>
-                    <View style={styles.inputGroup}>
-                        <Text style={styles.label}>Enquiry No</Text>
-                        <TextInput
-                            style={[styles.input, styles.inputReadOnly]}
-                            value={selectedEnquiry?.enqNo}
-                            editable={false}
-                        />
-                    </View>
-                    <View style={styles.inputGroup}>
-                        <Text style={styles.label}>Customer Name</Text>
-                        <TextInput
-                            style={[styles.input, styles.inputReadOnly]}
-                            value={selectedEnquiry?.name}
-                            editable={false}
-                        />
-                    </View>
-                    <View style={styles.inputGroup}>
-                        <Text style={styles.label}>Mobile No</Text>
-                        <TextInput
-                            style={[styles.input, styles.inputReadOnly]}
-                            value={selectedEnquiry?.mobile}
-                            editable={false}
-                        />
-                    </View>
-                    <View style={styles.inputGroup}>
-                        <Text style={styles.label}>Product Name</Text>
-                        <TextInput
-                            style={[styles.input, styles.inputReadOnly]}
-                            value={selectedEnquiry?.product}
-                            editable={false}
-                        />
-                    </View>
-                </View>
-
-                {/* User Input Section */}
-                <View style={styles.card}>
-                    <Text style={styles.cardHeaderLabel}>
-                        Follow-up Details
-                    </Text>
-
-                    <View style={styles.rowInputs}>
-                        <View style={{ flex: 1 }}>
-                            <Text style={styles.label}>Follow-up Date *</Text>
-                            <TextInput
-                                style={styles.input}
-                                value={followUpForm.date}
-                                onChangeText={(t) =>
-                                    setFollowUpForm({
-                                        ...followUpForm,
-                                        date: t,
-                                    })
-                                }
-                                placeholder="YYYY-MM-DD"
-                                placeholderTextColor="#94a3b8"
-                                selectionColor="#2563eb"
-                            />
-                        </View>
-                        <View style={{ flex: 1 }}>
-                            <Text style={styles.label}>Time</Text>
-                            <TextInput
-                                style={styles.input}
-                                value={followUpForm.time}
-                                onChangeText={(t) =>
-                                    setFollowUpForm({
-                                        ...followUpForm,
-                                        time: t,
-                                    })
-                                }
-                                placeholder="HH:MM"
-                                placeholderTextColor="#94a3b8"
-                                selectionColor="#2563eb"
-                            />
-                        </View>
-                    </View>
-
-                    <Text style={styles.label}>Follow-up Type</Text>
-                    <View style={styles.chipContainer}>
-                        {["Call", "WhatsApp", "Visit"].map((type) => (
-                            <TouchableOpacity
-                                key={type}
-                                style={[
-                                    styles.chip,
-                                    followUpForm.type === type &&
-                                        styles.chipActive,
-                                ]}
-                                onPress={() =>
-                                    setFollowUpForm({
-                                        ...followUpForm,
-                                        type: type,
-                                    })
-                                }>
-                                <Text
-                                    style={[
-                                        styles.chipText,
-                                        followUpForm.type === type &&
-                                            styles.chipTextActive,
-                                    ]}>
-                                    {type}
-                                </Text>
-                            </TouchableOpacity>
-                        ))}
-                    </View>
-
-                    <View style={styles.inputGroup}>
-                        <Text style={styles.label}>Discussion / Remarks *</Text>
-                        <TextInput
-                            style={[
-                                styles.input,
-                                { height: 80, textAlignVertical: "top" },
-                            ]}
-                            value={followUpForm.remarks}
-                            onChangeText={(t) =>
-                                setFollowUpForm({ ...followUpForm, remarks: t })
-                            }
-                            placeholder="Enter details..."
-                            multiline
-                            placeholderTextColor="#94a3b8"
-                            selectionColor="#2563eb"
-                        />
-                    </View>
-
-                    <Text style={styles.label}>Next Action</Text>
-                    <View style={styles.chipContainer}>
-                        {[
-                            "Interested",
-                            "Need Time",
-                            "Not Interested",
-                            "Converted",
-                        ].map((action) => (
-                            <TouchableOpacity
-                                key={action}
-                                style={[
-                                    styles.chipSmall,
-                                    followUpForm.nextAction === action &&
-                                        styles.chipActive,
-                                ]}
-                                onPress={() =>
-                                    setFollowUpForm({
-                                        ...followUpForm,
-                                        nextAction: action,
-                                    })
-                                }>
-                                <Text
-                                    style={[
-                                        styles.chipTextSmall,
-                                        followUpForm.nextAction === action &&
-                                            styles.chipTextActive,
-                                    ]}>
-                                    {action}
-                                </Text>
-                            </TouchableOpacity>
-                        ))}
-                    </View>
-
-                    <View style={styles.switchRow}>
-                        <Text style={styles.label}>
-                            Next Follow-up Required?
-                        </Text>
+    // 1. Clean Header
+    const TopBar = ({ title, showBack = false, onBack }) => (
+        <View style={lightStyles.headerContainer}>
+            <View style={lightStyles.header}>
+                <View style={lightStyles.headerLeft}>
+                    {showBack && (
                         <TouchableOpacity
-                            style={[
-                                styles.toggle,
-                                followUpForm.isNextRequired
-                                    ? styles.toggleActive
-                                    : styles.toggleInactive,
-                            ]}
-                            onPress={() =>
-                                setFollowUpForm({
-                                    ...followUpForm,
-                                    isNextRequired:
-                                        !followUpForm.isNextRequired,
-                                })
-                            }>
-                            <Text style={styles.toggleText}>
-                                {followUpForm.isNextRequired ? "YES" : "NO"}
-                            </Text>
-                        </TouchableOpacity>
-                    </View>
-
-                    {followUpForm.isNextRequired && (
-                        <View style={[styles.inputGroup, { marginTop: 10 }]}>
-                            <Text style={styles.label}>
-                                Next Follow-up Date
-                            </Text>
-                            <TextInput
-                                style={styles.input}
-                                value={followUpForm.nextDate}
-                                onChangeText={(t) =>
-                                    setFollowUpForm({
-                                        ...followUpForm,
-                                        nextDate: t,
-                                    })
-                                }
-                                placeholder="YYYY-MM-DD"
-                                placeholderTextColor="#94a3b8"
-                                selectionColor="#2563eb"
+                            onPress={
+                                onBack || (() => setScreen("ENQUIRY_LIST"))
+                            }
+                            style={lightStyles.backBtn}>
+                            <Ionicons
+                                name="arrow-back"
+                                size={24}
+                                color={THEME.textMain}
                             />
-                        </View>
+                        </TouchableOpacity>
                     )}
+                    <Text style={lightStyles.headerTitle}>{title}</Text>
                 </View>
-
-                <View style={styles.stickyButtons}>
+                <View style={lightStyles.headerRight}>
                     <TouchableOpacity
-                        style={styles.btnCancel}
-                        onPress={() => setScreen("ENQUIRY_LIST")}>
-                        <Text style={styles.btnCancelText}>Cancel</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                        style={styles.btnSave}
-                        onPress={() => handleSaveFollowUp(false)}>
-                        <Text style={styles.btnSaveText}>Save Follow-up</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                        style={[styles.btnSave, styles.btnSaveNext]}
-                        onPress={() => handleSaveFollowUp(true)}>
-                        <Ionicons name="add" size={20} color="white" />
-                        <Text style={styles.btnSaveText}>Save & Next</Text>
-                    </TouchableOpacity>
-                </View>
-            </ScrollView>
-        </KeyboardAvoidingView>
-    );
-
-    const MyFollowUpsList = () => (
-        <View style={{ flex: 1 }}>
-            <TopBar title="My Follow-ups" showBack />
-
-            {/* Tabs */}
-            <View style={styles.tabsContainer}>
-                {["Today", "Upcoming", "Missed", "Completed"].map((tab) => (
-                    <TouchableOpacity
-                        key={tab}
-                        style={[
-                            styles.tab,
-                            activeTab === tab && styles.tabActive,
-                        ]}
-                        onPress={() => setActiveTab(tab)}>
-                        <Text
-                            style={[
-                                styles.tabText,
-                                activeTab === tab && styles.tabTextActive,
-                            ]}>
-                            {tab}
-                        </Text>
-                        {activeTab === tab && (
-                            <View style={styles.tabIndicator} />
-                        )}
-                    </TouchableOpacity>
-                ))}
-            </View>
-
-            <FlatList
-                data={followUps}
-                keyExtractor={(item, index) =>
-                    item?.id ? item.id.toString() : `item-${index}`
-                }
-                contentContainerStyle={{ padding: 15, paddingBottom: 80 }}
-                ListEmptyComponent={
-                    <Text
-                        style={{
-                            textAlign: "center",
-                            marginTop: 50,
-                            color: "gray",
+                        style={lightStyles.iconBtn}
+                        onPress={() => {
+                            setPreviousScreen(screen);
+                            setScreen("NEXT_FOLLOWUP");
                         }}>
-                        {isLoading
-                            ? "Loading..."
-                            : `No ${activeTab.toLowerCase()} follow-ups`}
-                    </Text>
-                }
-                renderItem={({ item }) => {
-                    const colors = getStatusColor(
-                        item.nextAction === "Converted" ? "Converted" : "New",
-                    );
-                    return (
-                        <View style={styles.listCard}>
-                            <View style={styles.listHeader}>
-                                <View>
-                                    <Text style={styles.enqNo}>
-                                        {item.enqNo}
-                                    </Text>
-                                    <Text style={styles.subText}>
-                                        {item.name}
-                                    </Text>
-                                </View>
-                                <View
-                                    style={[
-                                        styles.badge,
-                                        { backgroundColor: colors.bg },
-                                    ]}>
-                                    <Text
-                                        style={[
-                                            styles.badgeText,
-                                            { color: colors.text },
-                                        ]}>
-                                        {item.nextAction}
-                                    </Text>
-                                </View>
-                            </View>
-
-                            <View style={styles.listBody}>
-                                <View style={styles.rowIcon}>
-                                    <Ionicons
-                                        name="calendar-outline"
-                                        size={16}
-                                        color="#64748b"
-                                    />
-                                    <Text style={styles.bodyText}>
-                                        {item.date} at {item.time || "--:--"}
-                                    </Text>
-                                </View>
-                                <View style={styles.rowIcon}>
-                                    <Ionicons
-                                        name="call-outline"
-                                        size={16}
-                                        color="#64748b"
-                                    />
-                                    <Text style={styles.bodyText}>
-                                        {item.type}
-                                    </Text>
-                                </View>
-                                <Text
-                                    style={styles.remarksText}
-                                    numberOfLines={2}>
-                                    "{item.remarks}"
-                                </Text>
-                            </View>
-
-                            <View style={styles.listFooter}>
-                                <TouchableOpacity style={styles.actionIcon}>
-                                    <Ionicons
-                                        name="eye-outline"
-                                        size={20}
-                                        color="#64748b"
-                                    />
-                                </TouchableOpacity>
-                                <TouchableOpacity style={styles.actionIcon}>
-                                    <Ionicons
-                                        name="create-outline"
-                                        size={20}
-                                        color="#f59e0b"
-                                    />
-                                </TouchableOpacity>
-                                <TouchableOpacity style={styles.actionIcon}>
-                                    <Ionicons
-                                        name="trash-outline"
-                                        size={20}
-                                        color="#ef4444"
-                                    />
-                                </TouchableOpacity>
-                            </View>
-                        </View>
-                    );
-                }}
-            />
+                        <Ionicons
+                            name="calendar-outline"
+                            size={22}
+                            color={THEME.textMain}
+                        />
+                    </TouchableOpacity>
+                </View>
+            </View>
         </View>
     );
 
+    // 2. Enquiry List Screen
     const EnquiryList = () => (
-        <View style={{ flex: 1 }}>
-            <TopBar title="Enquiry Management" />
+        <View style={{ flex: 1, backgroundColor: THEME.bg }}>
+            <TopBar title="Dashboard" />
 
-            <View style={styles.searchBar}>
-                <Ionicons name="search" size={20} color="#94a3b8" />
+            {/* Search Bar */}
+            <View style={lightStyles.searchContainer}>
+                <Ionicons name="search" size={20} color={THEME.textLight} />
                 <TextInput
-                    placeholder="Search Enquiries..."
-                    style={styles.searchInput}
+                    placeholder="Search name, mobile..."
+                    style={lightStyles.searchInput}
+                    placeholderTextColor={THEME.textLight}
                 />
             </View>
 
@@ -628,71 +269,55 @@ export default function App() {
                 keyExtractor={(item, index) =>
                     item?.id ? item.id.toString() : `item-${index}`
                 }
-                contentContainerStyle={{ padding: 15 }}
+                contentContainerStyle={lightStyles.listPadding}
                 refreshing={isLoading}
                 onRefresh={fetchEnquiries}
                 ListEmptyComponent={
-                    <Text
-                        style={{
-                            textAlign: "center",
-                            marginTop: 50,
-                            color: "gray",
-                        }}>
-                        {isLoading ? "Loading..." : "No enquiries found"}
-                    </Text>
+                    <View style={lightStyles.emptyContainer}>
+                        <MaterialIcons
+                            name="inbox"
+                            size={50}
+                            color={THEME.border}
+                        />
+                        <Text style={lightStyles.emptyText}>
+                            No enquiries found
+                        </Text>
+                    </View>
                 }
                 renderItem={({ item }) => {
                     const colors = getStatusColor(item.status);
                     return (
-                        <View style={styles.listCard}>
-                            <View style={styles.listHeader}>
-                                <Text style={styles.enqNo}>{item.enqNo}</Text>
-                                <View
-                                    style={[
-                                        styles.badge,
-                                        { backgroundColor: colors.bg },
-                                    ]}>
-                                    <Text
-                                        style={[
-                                            styles.badgeText,
-                                            { color: colors.text },
-                                        ]}>
-                                        {item.status}
+                        <View style={lightStyles.card}>
+                            <View style={lightStyles.cardHeader}>
+                                <View style={lightStyles.cardInfo}>
+                                    <Text style={lightStyles.enqNo}>
+                                        {item.enqNo}
                                     </Text>
+                                    <Text style={lightStyles.cardName}>
+                                        {item.name}
+                                    </Text>
+                                    <View style={lightStyles.metaRow}>
+                                        <Ionicons
+                                            name="cube-outline"
+                                            size={14}
+                                            color={THEME.textLight}
+                                        />
+                                        <Text style={lightStyles.metaText}>
+                                            {item.product}
+                                        </Text>
+                                    </View>
                                 </View>
-                            </View>
-                            <Text style={styles.mainName}>{item.name}</Text>
-                            <Text style={styles.subText}>
-                                {item.product} • ₹{item.value}
-                            </Text>
-
-                            <View style={styles.listFooter}>
-                                <TouchableOpacity
-                                    style={styles.btnSmall}
-                                    onPress={() => handleStartFollowUp(item)}>
-                                    <Ionicons
-                                        name="timer-outline"
-                                        size={16}
-                                        color="#2563eb"
-                                    />
-                                    <Text style={styles.btnSmallText}>
-                                        Follow-up
-                                    </Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity style={styles.actionIcon}>
-                                    <Ionicons
-                                        name="create-outline"
-                                        size={20}
-                                        color="#64748b"
-                                    />
-                                </TouchableOpacity>
-                                <TouchableOpacity style={styles.actionIcon}>
-                                    <Ionicons
-                                        name="trash-outline"
-                                        size={20}
-                                        color="#ef4444"
-                                    />
-                                </TouchableOpacity>
+                                <View style={lightStyles.cardActions}>
+                                    <TouchableOpacity
+                                        style={lightStyles.btnIcon}
+                                        onPress={() => handleOpenEdit(item)}>
+                                        <Ionicons
+                                            name="create-outline"
+                                            size={20}
+                                            color={THEME.textSec}
+                                        />
+                                    </TouchableOpacity>
+                                </View>
                             </View>
                         </View>
                     );
@@ -700,166 +325,344 @@ export default function App() {
             />
 
             <TouchableOpacity
-                style={styles.fab}
+                style={lightStyles.fab}
                 onPress={() =>
-                    Alert.alert("Module 1", "Add Enquiry Form here")
+                    Alert.alert("Module 1", "Navigate to Add Enquiry")
                 }>
-                <Ionicons name="add" size={24} color="white" />
+                <Ionicons name="add" size={28} color="#FFF" />
             </TouchableOpacity>
         </View>
     );
 
-    // --- RENDER ---
-    return (
-        <SafeAreaView style={styles.container}>
-            <StatusBar barStyle="light-content" />
+    // 3. Next Follow-ups Calendar View
+    const NextFollowUpsList = () => {
+        // Group follow-ups by date
+        const groupedByDate = followUps.reduce((acc, item) => {
+            const date = item.date;
+            if (!acc[date]) {
+                acc[date] = [];
+            }
+            acc[date].push(item);
+            return acc;
+        }, {});
 
-            {/* Main Content Router */}
-            {screen === "ENQUIRY_LIST" && <EnquiryList />}
-            {screen === "ADD_FOLLOWUP" && <FollowUpForm />}
-            {screen === "MY_FOLLOWUPS" && <MyFollowUpsList />}
+        const sortedDates = Object.keys(groupedByDate).sort();
 
-            {/* --- IMPORT PREVIEW MODAL --- */}
-            <Modal visible={showImportModal} transparent animationType="slide">
-                <View style={styles.modalOverlay}>
-                    <View style={styles.modalContainer}>
-                        <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>
-                                Preview Import
+        return (
+            <View style={{ flex: 1, backgroundColor: THEME.bg }}>
+                <TopBar
+                    title="Next Follow-ups"
+                    showBack
+                    onBack={() => setScreen(previousScreen)}
+                />
+                <FlatList
+                    data={sortedDates}
+                    keyExtractor={(date) => date}
+                    contentContainerStyle={lightStyles.calendarPadding}
+                    ListEmptyComponent={
+                        <View style={lightStyles.emptyContainer}>
+                            <Text style={lightStyles.emptyText}>
+                                No follow-ups scheduled
                             </Text>
-                            <TouchableOpacity
-                                onPress={() => setShowImportModal(false)}>
-                                <Ionicons name="close" size={24} color="#333" />
-                            </TouchableOpacity>
                         </View>
-
-                        <Text style={styles.helperText}>
-                            Rows with errors are highlighted in red.
-                        </Text>
-
-                        <ScrollView
-                            style={{ flex: 1, width: "100%" }}
-                            keyboardShouldPersistTaps="handled">
-                            {importDataPreview.map((row, idx) => (
+                    }
+                    renderItem={({ item: date }) => (
+                        <View style={lightStyles.dateSection}>
+                            <View style={lightStyles.dateHeader}>
+                                <Ionicons
+                                    name="calendar"
+                                    size={18}
+                                    color={THEME.primary}
+                                />
+                                <Text style={lightStyles.dateTitle}>
+                                    {date}
+                                </Text>
+                                <Text style={lightStyles.dateCount}>
+                                    {groupedByDate[date].length} follow-up(s)
+                                </Text>
+                            </View>
+                            {groupedByDate[date].map((item, idx) => (
                                 <View
                                     key={idx}
-                                    style={[
-                                        styles.importRow,
-                                        row.error && {
-                                            backgroundColor: "#fee2e2",
-                                            borderColor: "#ef4444",
-                                        },
-                                    ]}>
-                                    <Text style={styles.importCell}>
-                                        {row.enqNo}
-                                    </Text>
-                                    <Text style={styles.importCell}>
-                                        {row.name}
-                                    </Text>
-                                    <Text style={styles.importCell}>
-                                        {row.mobile}
-                                    </Text>
-                                    {row.error && (
+                                    style={lightStyles.followupItem}>
+                                    <View style={lightStyles.followupLeft}>
+                                        <Text style={lightStyles.followupName}>
+                                            {item.name}
+                                        </Text>
+                                        <Text
+                                            style={lightStyles.followupRemarks}>
+                                            {item.remarks}
+                                        </Text>
+                                    </View>
+                                    <TouchableOpacity
+                                        style={lightStyles.followupBtn}
+                                        onPress={() => handleOpenEdit(item)}>
                                         <Ionicons
-                                            name="warning"
-                                            size={16}
-                                            color="red"
+                                            name="create-outline"
+                                            size={18}
+                                            color={THEME.primary}
                                         />
-                                    )}
+                                    </TouchableOpacity>
                                 </View>
                             ))}
-                        </ScrollView>
-
-                        <View style={styles.modalFooter}>
-                            <TouchableOpacity
-                                style={styles.btnModalSecondary}
-                                onPress={() => setShowImportModal(false)}>
-                                <Text>Cancel</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={styles.btnModalPrimary}
-                                onPress={() => {
-                                    setShowImportModal(false);
-                                    Alert.alert("Import", "Valid data saved!");
-                                }}>
-                                <Text
-                                    style={{
-                                        color: "white",
-                                        fontWeight: "bold",
-                                    }}>
-                                    Save Valid Rows
-                                </Text>
-                            </TouchableOpacity>
                         </View>
+                    )}
+                />
+            </View>
+        );
+    };
+
+    // 4. My Follow-ups Screen (Timeline)
+    const MyFollowUpsList = () => (
+        <View style={{ flex: 1, backgroundColor: THEME.bg }}>
+            <TopBar title="My Follow-ups" showBack />
+
+            {/* Tabs */}
+            <View style={lightStyles.tabsContainer}>
+                {["Today", "Upcoming", "Missed", "Completed"].map((tab) => (
+                    <TouchableOpacity
+                        key={tab}
+                        style={[
+                            lightStyles.tab,
+                            activeTab === tab && lightStyles.tabActive,
+                        ]}
+                        onPress={() => setActiveTab(tab)}>
+                        <Text
+                            style={[
+                                lightStyles.tabText,
+                                activeTab === tab && lightStyles.tabTextActive,
+                            ]}>
+                            {tab}
+                        </Text>
+                    </TouchableOpacity>
+                ))}
+            </View>
+
+            <FlatList
+                data={followUps}
+                keyExtractor={(item, index) =>
+                    item?._id ? item._id.toString() : `item-${index}`
+                }
+                contentContainerStyle={lightStyles.timelinePadding}
+                ListEmptyComponent={
+                    <View style={lightStyles.emptyContainer}>
+                        <Text style={lightStyles.emptyText}>
+                            No {activeTab.toLowerCase()} follow-ups
+                        </Text>
                     </View>
-                </View>
-            </Modal>
-
-            {/* --- EXPORT MODAL --- */}
-            <Modal visible={showExportModal} transparent animationType="fade">
-                <View style={styles.modalOverlay}>
-                    <View style={styles.smallModal}>
-                        <Text style={styles.modalTitle}>Export Options</Text>
-
-                        <View style={styles.exportOption}>
-                            <Text style={styles.exportLabel}>Date Range</Text>
-                            <View style={styles.rowInputs}>
-                                <TextInput
-                                    style={[styles.input, { flex: 1 }]}
-                                    placeholder="From"
+                }
+                renderItem={({ item, index }) => {
+                    const colors = getStatusColor(
+                        item.nextAction === "Converted" ? "Converted" : "New",
+                    );
+                    return (
+                        <View style={lightStyles.timelineItem}>
+                            <View style={lightStyles.timelineTrack}>
+                                <View
+                                    style={[
+                                        lightStyles.timelineDot,
+                                        {
+                                            backgroundColor: colors.border,
+                                            borderColor: THEME.card,
+                                        },
+                                    ]}
                                 />
-                                <TextInput
-                                    style={[styles.input, { flex: 1 }]}
-                                    placeholder="To"
-                                />
+                                {index !== followUps.length - 1 && (
+                                    <View style={lightStyles.timelineLine} />
+                                )}
                             </View>
-                        </View>
-
-                        <View style={styles.exportOption}>
-                            <Text style={styles.exportLabel}>Type</Text>
-                            <View style={styles.chipContainer}>
-                                <TouchableOpacity style={styles.chip}>
-                                    <Text style={styles.chipText}>
-                                        Enquiries
+                            <View style={lightStyles.timelineCard}>
+                                <View style={lightStyles.timelineHeader}>
+                                    <Text style={lightStyles.timelineDate}>
+                                        {item.date} • {item.time}
                                     </Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity
-                                    style={[styles.chip, styles.chipActive]}>
-                                    <Text
+                                    <View
                                         style={[
-                                            styles.chipText,
-                                            styles.chipTextActive,
+                                            lightStyles.pill,
+                                            { backgroundColor: colors.bg },
                                         ]}>
-                                        Follow-ups
+                                        <Text
+                                            style={[
+                                                lightStyles.pillText,
+                                                { color: colors.text },
+                                            ]}>
+                                            {item.type}
+                                        </Text>
+                                    </View>
+                                </View>
+                                <Text style={lightStyles.timelineName}>
+                                    {item.name}
+                                </Text>
+                                <Text style={lightStyles.timelineRemarks}>
+                                    {item.remarks}
+                                </Text>
+                                <TouchableOpacity
+                                    style={lightStyles.editLink}
+                                    onPress={() => handleOpenEdit(item)}>
+                                    <Text style={lightStyles.editLinkText}>
+                                        Update Status
                                     </Text>
                                 </TouchableOpacity>
                             </View>
                         </View>
+                    );
+                }}
+            />
+        </View>
+    );
 
-                        <View style={styles.modalFooter}>
+    return (
+        <SafeAreaView style={lightStyles.safeArea}>
+            <StatusBar barStyle="dark-content" backgroundColor={THEME.card} />
+
+            {screen === "ENQUIRY_LIST" && <EnquiryList />}
+            {screen === "ADD_FOLLOWUP" && (
+                <AddFollowUpScreen
+                    selectedEnquiry={selectedEnquiry}
+                    onBack={() => setScreen("ENQUIRY_LIST")}
+                    onSuccess={() => {
+                        setScreen("MY_FOLLOWUPS");
+                        fetchFollowUps(activeTab);
+                    }}
+                />
+            )}
+            {screen === "MY_FOLLOWUPS" && <MyFollowUpsList />}
+            {screen === "NEXT_FOLLOWUP" && <NextFollowUpsList />}
+
+            {/* Edit Follow-up Modal */}
+            <Modal visible={showEditModal} transparent animationType="fade">
+                <View style={lightStyles.modalOverlay}>
+                    <View style={lightStyles.centerModal}>
+                        <View style={lightStyles.modalHeader}>
+                            <Text style={lightStyles.sheetTitle}>
+                                Update Status
+                            </Text>
                             <TouchableOpacity
-                                style={styles.btnModalSecondary}
-                                onPress={() => setShowExportModal(false)}>
-                                <Text>Cancel</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={styles.btnModalPrimary}
-                                onPress={() => {
-                                    setShowExportModal(false);
-                                    Alert.alert(
-                                        "Export",
-                                        "File downloaded as Excel",
-                                    );
-                                }}>
-                                <Text
-                                    style={{
-                                        color: "white",
-                                        fontWeight: "bold",
-                                    }}>
-                                    Export
-                                </Text>
+                                onPress={() => setShowEditModal(false)}>
+                                <Ionicons
+                                    name="close"
+                                    size={24}
+                                    color={THEME.textMain}
+                                />
                             </TouchableOpacity>
                         </View>
+
+                        {editItem && (
+                            <ScrollView>
+                                <View style={lightStyles.infoBlock}>
+                                    <Text style={lightStyles.infoLabel}>
+                                        Date
+                                    </Text>
+                                    <Text style={lightStyles.infoValue}>
+                                        {editItem.date}
+                                    </Text>
+                                </View>
+                                <View style={lightStyles.inputGroup}>
+                                    <Text style={lightStyles.inputLabel}>
+                                        Remarks
+                                    </Text>
+                                    <TextInput
+                                        value={editRemarks}
+                                        onChangeText={setEditRemarks}
+                                        placeholder="Add any notes or remarks..."
+                                        style={[
+                                            lightStyles.modalInput,
+                                            {
+                                                height: 100,
+                                                textAlignVertical: "top",
+                                            },
+                                        ]}
+                                        multiline
+                                    />
+                                </View>
+
+                                <Text style={lightStyles.sectionLabel}>
+                                    Select Action
+                                </Text>
+                                <View style={lightStyles.chipGroup}>
+                                    {["Followup", "Sales", "Drop"].map(
+                                        (status) => (
+                                            <TouchableOpacity
+                                                key={status}
+                                                onPress={() =>
+                                                    setEditStatus(status)
+                                                }
+                                                style={[
+                                                    lightStyles.optionCard,
+                                                    editStatus === status &&
+                                                        lightStyles.optionCardActive,
+                                                ]}>
+                                                <View
+                                                    style={[
+                                                        lightStyles.radioCircle,
+                                                        editStatus === status &&
+                                                            lightStyles.radioCircleActive,
+                                                    ]}
+                                                />
+                                                <Text
+                                                    style={[
+                                                        lightStyles.optionText,
+                                                        editStatus === status &&
+                                                            lightStyles.optionTextActive,
+                                                    ]}>
+                                                    {status}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        ),
+                                    )}
+                                </View>
+
+                                {editStatus === "Followup" && (
+                                    <View style={lightStyles.inputGroup}>
+                                        <Text style={lightStyles.inputLabel}>
+                                            Next Date
+                                        </Text>
+                                        <TextInput
+                                            value={editNextDate}
+                                            onChangeText={setEditNextDate}
+                                            placeholder="YYYY-MM-DD"
+                                            style={lightStyles.modalInput}
+                                        />
+                                    </View>
+                                )}
+
+                                {editStatus === "Sales" && (
+                                    <View style={lightStyles.inputGroup}>
+                                        <Text style={lightStyles.inputLabel}>
+                                            Amount (₹)
+                                        </Text>
+                                        <TextInput
+                                            value={editAmount}
+                                            onChangeText={setEditAmount}
+                                            keyboardType="numeric"
+                                            placeholder="0.00"
+                                            style={lightStyles.modalInput}
+                                        />
+                                    </View>
+                                )}
+
+                                <View style={lightStyles.sheetFooter}>
+                                    <TouchableOpacity
+                                        style={lightStyles.btnSecondary}
+                                        onPress={() => setShowEditModal(false)}>
+                                        <Text
+                                            style={
+                                                lightStyles.btnSecondaryText
+                                            }>
+                                            Cancel
+                                        </Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={lightStyles.btnPrimary}
+                                        onPress={handleSaveEdit}>
+                                        <Text
+                                            style={lightStyles.btnPrimaryText}>
+                                            Save
+                                        </Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </ScrollView>
+                        )}
                     </View>
                 </View>
             </Modal>
@@ -867,289 +670,424 @@ export default function App() {
     );
 }
 
-// --- STYLES ---
-const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: "#f8fafc" },
+// --- LIGHT MODERN STYLES ---
+const lightStyles = StyleSheet.create({
+    safeArea: { flex: 1, backgroundColor: THEME.bg },
 
-    // Top Bar
-    topBar: {
-        backgroundColor: "#2563eb",
-        paddingVertical: 15,
-        paddingHorizontal: 15,
+    // Header
+    headerContainer: {
+        backgroundColor: THEME.card,
+        borderBottomWidth: 1,
+        borderBottomColor: THEME.border,
+        zIndex: 10,
+    },
+    header: {
         flexDirection: "row",
         justifyContent: "space-between",
         alignItems: "center",
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        marginTop: Platform.OS === "android" ? StatusBar.currentHeight : 0,
     },
-    topBarLeft: { flexDirection: "row", alignItems: "center" },
-    topBarTitle: { color: "#fff", fontSize: 18, fontWeight: "bold" },
-    topBarRight: { flexDirection: "row" },
-    iconBtn: { marginLeft: 15 },
+    headerLeft: { flexDirection: "row", alignItems: "center" },
+    headerTitle: {
+        fontSize: 18,
+        fontWeight: "700",
+        color: THEME.textMain,
+        marginLeft: 8,
+    },
+    headerRight: { flexDirection: "row" },
+    backBtn: { padding: 4, marginRight: 4 },
+    iconBtn: { padding: 8 },
 
-    // Common List
-    searchBar: {
+    // Search
+    searchContainer: {
         flexDirection: "row",
         alignItems: "center",
-        backgroundColor: "#fff",
-        margin: 15,
-        padding: 10,
-        borderRadius: 10,
-        shadowColor: "#000",
-        shadowOpacity: 0.05,
-        shadowRadius: 5,
-    },
-    searchInput: { marginLeft: 10, flex: 1 },
-    listCard: {
-        backgroundColor: "#fff",
+        backgroundColor: THEME.card,
+        marginHorizontal: 16,
+        marginTop: 16,
+        marginBottom: 8,
+        paddingHorizontal: 12,
         borderRadius: 12,
-        padding: 15,
-        marginBottom: 15,
         shadowColor: "#000",
-        shadowOpacity: 0.05,
-        shadowRadius: 3,
+        shadowOpacity: 0.03,
+        shadowRadius: 5,
         elevation: 2,
     },
-    listHeader: {
+    searchInput: {
+        marginLeft: 8,
+        flex: 1,
+        fontSize: 15,
+        color: THEME.textMain,
+    },
+
+    // List
+    listPadding: { paddingHorizontal: 16, paddingBottom: 80 },
+    emptyContainer: { alignItems: "center", marginTop: 60 },
+    emptyText: { color: THEME.textSec, marginTop: 12, fontSize: 14 },
+
+    // Card Design
+    card: {
+        backgroundColor: THEME.card,
+        borderRadius: 16,
+        padding: 16,
+        marginBottom: 12,
+        shadowColor: "#000",
+        shadowOpacity: 0.04,
+        shadowRadius: 8,
+        elevation: 2,
+        borderWidth: 1,
+        borderColor: THEME.border,
+    },
+    cardHeader: {
+        flexDirection: "row",
+        justifyContent: "space-between",
+        marginBottom: 12,
+    },
+    cardInfo: { flex: 1 },
+    enqNo: {
+        fontSize: 12,
+        color: THEME.textSec,
+        fontWeight: "600",
+        marginBottom: 4,
+    },
+    cardName: {
+        fontSize: 17,
+        fontWeight: "700",
+        color: THEME.textMain,
+        marginBottom: 6,
+    },
+    metaRow: { flexDirection: "row", alignItems: "center" },
+    metaText: { fontSize: 13, color: THEME.textSec, marginLeft: 4 },
+    statusBadge: {
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 8,
+        borderWidth: 1,
+    },
+    statusText: { fontSize: 11, fontWeight: "700", textTransform: "uppercase" },
+
+    cardActions: {
+        flexDirection: "row",
+        alignItems: "center",
+        borderTopWidth: 1,
+        borderTopColor: THEME.bg,
+        paddingTop: 12,
+    },
+    btnPrimary: {
+        flexDirection: "row",
+        backgroundColor: THEME.primary,
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+        borderRadius: 8,
+        alignItems: "center",
+        marginRight: 8,
+    },
+    btnPrimaryText: {
+        color: "#fff",
+        fontWeight: "600",
+        marginLeft: 4,
+        fontSize: 13,
+    },
+    btnIcon: { padding: 6, borderRadius: 8, backgroundColor: THEME.bg },
+
+    fab: {
+        position: "absolute",
+        bottom: 24,
+        right: 24,
+        width: 56,
+        height: 56,
+        borderRadius: 28,
+        backgroundColor: THEME.primary,
+        justifyContent: "center",
+        alignItems: "center",
+        shadowColor: THEME.primary,
+        shadowOpacity: 0.3,
+        shadowRadius: 10,
+        elevation: 5,
+    },
+
+    // Tabs
+    tabsContainer: {
+        flexDirection: "row",
+        backgroundColor: THEME.card,
+        borderBottomWidth: 1,
+        borderBottomColor: THEME.border,
+    },
+    tab: {
+        flex: 1,
+        paddingVertical: 14,
+        alignItems: "center",
+        borderBottomWidth: 2,
+        borderBottomColor: "transparent",
+    },
+    tabActive: { borderBottomColor: THEME.primary },
+    tabText: { fontSize: 14, fontWeight: "500", color: THEME.textSec },
+    tabTextActive: { color: THEME.primary, fontWeight: "700" },
+
+    // Timeline
+    timelinePadding: {
+        paddingHorizontal: 16,
+        paddingTop: 20,
+        paddingBottom: 80,
+    },
+    timelineItem: { flexDirection: "row", marginBottom: 24 },
+    timelineTrack: { alignItems: "center", marginRight: 12 },
+    timelineDot: {
+        width: 14,
+        height: 14,
+        borderRadius: 7,
+        borderWidth: 3,
+        zIndex: 2,
+    },
+    timelineLine: {
+        width: 2,
+        flex: 1,
+        backgroundColor: THEME.border,
+        position: "absolute",
+        top: 14,
+        bottom: -24,
+    },
+    timelineCard: {
+        flex: 1,
+        backgroundColor: THEME.card,
+        borderRadius: 12,
+        padding: 14,
+        borderWidth: 1,
+        borderColor: THEME.border,
+        shadowOpacity: 0.02,
+        shadowRadius: 4,
+        elevation: 1,
+    },
+    timelineHeader: {
         flexDirection: "row",
         justifyContent: "space-between",
         alignItems: "center",
         marginBottom: 8,
     },
-    enqNo: { fontWeight: "bold", color: "#1e293b" },
-    badge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
-    badgeText: { fontSize: 11, fontWeight: "bold" },
-    mainName: { fontSize: 16, fontWeight: "600", color: "#334155" },
-    subText: { fontSize: 13, color: "#64748b", marginTop: 2 },
-    listFooter: {
-        flexDirection: "row",
-        justifyContent: "flex-end",
-        alignItems: "center",
-        marginTop: 10,
-        borderTopWidth: 1,
-        borderTopColor: "#f1f5f9",
-        paddingTop: 10,
+    timelineDate: { fontSize: 12, color: THEME.textSec, fontWeight: "600" },
+    pill: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 },
+    pillText: { fontSize: 10, fontWeight: "700" },
+    timelineName: {
+        fontSize: 15,
+        fontWeight: "700",
+        color: THEME.textMain,
+        marginBottom: 4,
     },
-    btnSmall: {
-        flexDirection: "row",
-        backgroundColor: "#eff6ff",
-        paddingVertical: 6,
-        paddingHorizontal: 12,
-        borderRadius: 6,
-        marginRight: "auto",
-    },
-    btnSmallText: {
-        color: "#2563eb",
-        fontSize: 12,
-        fontWeight: "bold",
-        marginLeft: 4,
-    },
-    actionIcon: { padding: 6, marginLeft: 5 },
-    fab: {
-        position: "absolute",
-        bottom: 25,
-        right: 20,
-        backgroundColor: "#10b981",
-        width: 56,
-        height: 56,
-        borderRadius: 28,
-        justifyContent: "center",
-        alignItems: "center",
-        elevation: 5,
-        shadowColor: "#000",
-        shadowOpacity: 0.3,
-    },
-
-    // Form
-    formContainer: { flex: 1, padding: 15, paddingBottom: 100 },
-    card: {
-        backgroundColor: "#fff",
-        borderRadius: 12,
-        padding: 15,
-        marginBottom: 15,
-        shadowColor: "#000",
-        shadowOpacity: 0.05,
-        elevation: 1,
-    },
-    cardHeaderLabel: {
-        fontSize: 14,
-        fontWeight: "bold",
-        color: "#64748b",
-        marginBottom: 10,
-        textTransform: "uppercase",
-    },
-    inputGroup: { marginBottom: 12 },
-    label: {
+    timelineRemarks: {
         fontSize: 13,
-        fontWeight: "600",
-        color: "#334155",
-        marginBottom: 6,
+        color: THEME.textSec,
+        lineHeight: 20,
+        marginBottom: 12,
     },
-    input: {
-        backgroundColor: "#f8fafc",
-        borderWidth: 1,
-        borderColor: "#e2e8f0",
-        borderRadius: 8,
-        padding: 12,
-        fontSize: 14,
-        color: "#334155",
-    },
-    inputReadOnly: { backgroundColor: "#f1f5f9", color: "#94a3b8" },
-    rowInputs: { flexDirection: "row", gap: 10 },
-
-    // Chips (Radio)
-    chipContainer: {
-        flexDirection: "row",
-        gap: 10,
-        marginBottom: 15,
-        flexWrap: "wrap",
-    },
-    chip: {
-        backgroundColor: "#f1f5f9",
-        paddingVertical: 8,
-        paddingHorizontal: 16,
-        borderRadius: 20,
-        borderWidth: 1,
-        borderColor: "transparent",
-    },
-    chipActive: { backgroundColor: "#eff6ff", borderColor: "#2563eb" },
-    chipText: { color: "#64748b", fontSize: 13, fontWeight: "500" },
-    chipTextActive: { color: "#2563eb", fontWeight: "bold" },
-    chipSmall: { paddingVertical: 6, paddingHorizontal: 12 },
-
-    // Toggle Switch
-    switchRow: {
-        flexDirection: "row",
-        justifyContent: "space-between",
-        alignItems: "center",
-        marginVertical: 10,
-    },
-    toggle: {
-        width: 60,
-        height: 30,
-        borderRadius: 15,
-        justifyContent: "center",
-        alignItems: "center",
-        padding: 2,
-    },
-    toggleInactive: { backgroundColor: "#cbd5e1" },
-    toggleActive: { backgroundColor: "#10b981" },
-    toggleText: { fontSize: 12, fontWeight: "bold", color: "#fff" },
-
-    // Buttons
-    stickyButtons: { flexDirection: "row", gap: 10, marginTop: 10 },
-    btnCancel: {
-        flex: 1,
-        backgroundColor: "#f1f5f9",
-        padding: 15,
-        borderRadius: 10,
-        alignItems: "center",
-    },
-    btnCancelText: { color: "#64748b", fontWeight: "bold" },
-    btnSave: {
-        flex: 1.2,
-        backgroundColor: "#2563eb",
-        padding: 15,
-        borderRadius: 10,
-        alignItems: "center",
-        flexDirection: "row",
-        justifyContent: "center",
-    },
-    btnSaveText: { color: "#fff", fontWeight: "bold" },
-    btnSaveNext: { backgroundColor: "#10b981" },
-
-    // My Followups Tabs
-    tabsContainer: {
-        flexDirection: "row",
-        backgroundColor: "#fff",
-        paddingVertical: 5,
-        borderBottomWidth: 1,
-        borderBottomColor: "#e2e8f0",
-    },
-    tab: { flex: 1, paddingVertical: 12, alignItems: "center" },
-    tabActive: { borderBottomWidth: 2, borderBottomColor: "#2563eb" },
-    tabText: { color: "#94a3b8", fontSize: 13, fontWeight: "600" },
-    tabTextActive: { color: "#2563eb" },
-    tabIndicator: {
-        position: "absolute",
-        bottom: -1,
-        width: "100%",
-        height: 2,
-        backgroundColor: "#2563eb",
-    },
-
-    // Followup List Item specifics
-    listBody: { marginTop: 8 },
-    rowIcon: { flexDirection: "row", alignItems: "center", marginBottom: 4 },
-    bodyText: { marginLeft: 8, fontSize: 13, color: "#475569" },
-    remarksText: {
-        marginTop: 8,
-        fontStyle: "italic",
-        color: "#64748b",
-        fontSize: 12,
-        backgroundColor: "#f8fafc",
-        padding: 8,
-        borderRadius: 6,
-    },
+    editLink: { alignSelf: "flex-start" },
+    editLinkText: { fontSize: 12, color: THEME.primary, fontWeight: "600" },
 
     // Modals
     modalOverlay: {
         flex: 1,
-        backgroundColor: "rgba(0,0,0,0.5)",
-        justifyContent: "flex-end",
+        backgroundColor: "rgba(0,0,0,0.4)",
+        justifyContent: "center",
+        alignItems: "center",
     },
-    modalContainer: {
-        backgroundColor: "#fff",
-        height: "80%",
-        borderTopLeftRadius: 20,
-        borderTopRightRadius: 20,
+    bottomSheet: {
+        backgroundColor: THEME.card,
+        width: "100%",
+        height: "70%",
+        borderTopLeftRadius: 24,
+        borderTopRightRadius: 24,
         padding: 20,
+        position: "absolute",
+        bottom: 0,
     },
-    smallModal: {
-        backgroundColor: "#fff",
-        margin: 30,
-        borderRadius: 15,
-        padding: 20,
+    centerModal: {
+        backgroundColor: THEME.card,
+        width: "90%",
+        borderRadius: 20,
+        padding: 24,
+        maxHeight: "80%",
     },
-    modalHeader: {
+    sheetHeader: {
         flexDirection: "row",
         justifyContent: "space-between",
         alignItems: "center",
-        marginBottom: 15,
+        marginBottom: 20,
+        paddingBottom: 10,
+        borderBottomWidth: 1,
+        borderBottomColor: THEME.border,
     },
-    modalTitle: { fontSize: 18, fontWeight: "bold", color: "#1e293b" },
-    helperText: { fontSize: 12, color: "#ef4444", marginBottom: 10 },
+    sheetTitle: { fontSize: 18, fontWeight: "700", color: THEME.textMain },
 
-    // Import Preview Rows
+    // Import Row
     importRow: {
         flexDirection: "row",
-        padding: 10,
+        padding: 12,
         borderBottomWidth: 1,
-        borderBottomColor: "#f1f5f9",
+        borderBottomColor: THEME.border,
         alignItems: "center",
     },
-    importCell: { flex: 1, fontSize: 13, color: "#334155" },
+    importCell: { flex: 1, fontSize: 14, color: THEME.textMain },
+    importError: { backgroundColor: THEME.dangerLight },
 
-    exportOption: { marginBottom: 20 },
-    exportLabel: {
+    // Edit Modal Specifics
+    infoBlock: { marginBottom: 16 },
+    infoLabel: {
+        fontSize: 12,
+        color: THEME.textSec,
+        fontWeight: "600",
+        marginBottom: 4,
+    },
+    infoValue: { fontSize: 14, color: THEME.textMain, lineHeight: 20 },
+
+    sectionLabel: {
         fontSize: 14,
-        fontWeight: "bold",
-        marginBottom: 8,
-        color: "#475569",
+        fontWeight: "700",
+        color: THEME.textMain,
+        marginBottom: 12,
+    },
+    chipGroup: { flexDirection: "row", gap: 12, marginBottom: 16 },
+    optionCard: {
+        flex: 1,
+        flexDirection: "row",
+        alignItems: "center",
+        padding: 12,
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: THEME.border,
+        backgroundColor: THEME.bg,
+    },
+    optionCardActive: {
+        borderColor: THEME.primary,
+        backgroundColor: THEME.primaryLight,
+    },
+    radioCircle: {
+        width: 18,
+        height: 18,
+        borderRadius: 9,
+        borderWidth: 2,
+        borderColor: THEME.textSec,
+        marginRight: 8,
+    },
+    radioCircleActive: {
+        borderColor: THEME.primary,
+        backgroundColor: THEME.primary,
+    },
+    optionText: { fontSize: 14, color: THEME.textSec, fontWeight: "500" },
+    optionTextActive: { color: THEME.primaryText, fontWeight: "700" },
+
+    inputGroup: { marginBottom: 16 },
+    inputLabel: {
+        fontSize: 13,
+        fontWeight: "600",
+        color: THEME.textMain,
+        marginBottom: 6,
+    },
+    modalInput: {
+        backgroundColor: THEME.bg,
+        borderWidth: 1,
+        borderColor: THEME.border,
+        borderRadius: 8,
+        padding: 12,
+        fontSize: 14,
+        color: THEME.textMain,
     },
 
-    modalFooter: { flexDirection: "row", gap: 10, marginTop: 20 },
-    btnModalSecondary: {
+    sheetFooter: { flexDirection: "row", gap: 12, marginTop: 10 },
+    btnSecondary: {
         flex: 1,
         padding: 12,
-        borderRadius: 8,
+        borderRadius: 10,
         borderWidth: 1,
-        borderColor: "#e2e8f0",
+        borderColor: THEME.border,
+        alignItems: "center",
+        backgroundColor: "#fff",
+    },
+    btnSecondaryText: {
+        color: THEME.textMain,
+        fontWeight: "600",
+        fontSize: 14,
+    },
+    btnPrimary: {
+        flex: 1,
+        padding: 12,
+        borderRadius: 10,
+        backgroundColor: THEME.primary,
         alignItems: "center",
     },
-    btnModalPrimary: {
-        flex: 1,
-        padding: 12,
-        borderRadius: 8,
-        backgroundColor: "#2563eb",
+    btnPrimaryText: { color: "#fff", fontWeight: "700", fontSize: 14 },
+
+    exportRow: { flexDirection: "row", alignItems: "center", marginBottom: 16 },
+    exportLabel: {
+        width: 60,
+        fontSize: 14,
+        color: THEME.textSec,
+        fontWeight: "500",
+    },
+
+    // Calendar View Styles
+    calendarPadding: {
+        paddingHorizontal: 16,
+        paddingTop: 16,
+        paddingBottom: 80,
+    },
+    dateSection: {
+        marginBottom: 24,
+        backgroundColor: THEME.card,
+        borderRadius: 12,
+        overflow: "hidden",
+        borderWidth: 1,
+        borderColor: THEME.border,
+        shadowOpacity: 0.02,
+        shadowRadius: 4,
+        elevation: 1,
+    },
+    dateHeader: {
+        flexDirection: "row",
         alignItems: "center",
+        backgroundColor: THEME.primaryLight,
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: THEME.border,
+        gap: 8,
+    },
+    dateTitle: {
+        fontSize: 15,
+        fontWeight: "700",
+        color: THEME.primaryText,
+        flex: 1,
+    },
+    dateCount: {
+        fontSize: 12,
+        color: THEME.textSec,
+        fontWeight: "600",
+    },
+    followupItem: {
+        flexDirection: "row",
+        alignItems: "center",
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: THEME.border,
+    },
+    followupLeft: {
+        flex: 1,
+    },
+    followupName: {
+        fontSize: 14,
+        fontWeight: "700",
+        color: THEME.textMain,
+        marginBottom: 2,
+    },
+    followupRemarks: {
+        fontSize: 12,
+        color: THEME.textSec,
+        lineHeight: 16,
+    },
+    followupBtn: {
+        padding: 6,
+        borderRadius: 8,
+        backgroundColor: THEME.primaryLight,
     },
 });

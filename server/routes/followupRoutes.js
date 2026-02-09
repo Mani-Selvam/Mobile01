@@ -1,104 +1,129 @@
 const express = require("express");
 const router = express.Router();
-
-// Mock data storage
-let followUps = [
-    {
-        id: 1,
-        enqNo: "ENQ-001",
-        name: "Rahul Sharma",
-        type: "Call",
-        date: new Date().toISOString().split("T")[0],
-        time: "10:00 AM",
-        status: "Pending",
-        notes: "Follow up regarding quotation",
-    },
-    {
-        id: 2,
-        enqNo: "ENQ-002",
-        name: "Priya Singh",
-        type: "Visit",
-        date: new Date(Date.now() + 86400000).toISOString().split("T")[0],
-        time: "02:00 PM",
-        status: "Pending",
-        notes: "Site inspection",
-    },
-];
-
-let nextId = 3;
+const mongoose = require("mongoose");
+const FollowUp = require("../models/FollowUp");
 
 // GET Follow-ups with Tabs
-router.get("/", (req, res) => {
+router.get("/", async (req, res) => {
     try {
         const { tab } = req.query;
         const today = new Date().toISOString().split("T")[0];
 
-        let filtered = followUps;
+        let query = {};
 
         if (tab === "Today") {
-            filtered = filtered.filter(
-                (f) => f.date === today && f.status !== "Completed",
-            );
+            query = {
+                date: today,
+                status: { $ne: "Completed" },
+            };
         } else if (tab === "Upcoming") {
-            filtered = filtered.filter(
-                (f) => f.date > today && f.status !== "Completed",
-            );
+            query = {
+                date: { $gt: today },
+                status: { $ne: "Completed" },
+            };
         } else if (tab === "Missed") {
-            filtered = filtered.filter(
-                (f) => f.date < today && f.status !== "Completed",
-            );
+            query = {
+                date: { $lt: today },
+                status: { $ne: "Completed" },
+            };
         } else if (tab === "Completed") {
-            filtered = filtered.filter((f) => f.status === "Completed");
+            query = {
+                status: "Completed",
+            };
         }
 
-        res.json(filtered);
+        console.log("Fetching follow-ups with query:", query);
+        const followUps = await FollowUp.find(query).sort({ date: -1 });
+        console.log(`Found ${followUps.length} follow-ups for tab: ${tab}`);
+        res.json(followUps);
     } catch (err) {
+        console.error("Get follow-ups error:", err);
         res.status(500).json({ message: err.message });
     }
 });
 
 // CREATE Follow-up
-router.post("/", (req, res) => {
+router.post("/", async (req, res) => {
     try {
-        const newFollowUp = {
-            id: nextId++,
-            ...req.body,
-            status: "Pending",
-        };
+        console.log("=== CREATE FOLLOW-UP ===");
+        console.log("Raw request body:", req.body);
+        console.log("Type of nextAction:", typeof req.body.nextAction);
+        console.log(
+            "Value of nextAction:",
+            JSON.stringify(req.body.nextAction),
+        );
+        console.log("Type of remarks:", typeof req.body.remarks);
+        console.log("Value of remarks:", JSON.stringify(req.body.remarks));
 
-        followUps.push(newFollowUp);
-        res.status(201).json(newFollowUp);
+        const newFollowUp = new FollowUp({
+            ...req.body,
+            status: "Scheduled",
+        });
+
+        console.log("Attempting save with document:", newFollowUp.toObject());
+        const saved = await newFollowUp.save();
+        console.log("Follow-up created successfully:", saved._id);
+        res.status(201).json(saved);
     } catch (err) {
+        console.error("=== CREATE ERROR ===");
+        console.error("Full error:", err);
+        console.error("Error message:", err.message);
         res.status(400).json({ message: err.message });
     }
 });
 
 // UPDATE Follow-up
-router.put("/:id", (req, res) => {
+router.put("/:id", async (req, res) => {
     try {
-        const index = followUps.findIndex((f) => f.id == req.params.id);
-        if (index === -1) {
+        console.log("Update request for ID:", req.params.id);
+        console.log("Update payload:", req.body);
+
+        // Validate MongoDB ObjectId
+        if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+            console.log("Invalid ObjectId format:", req.params.id);
+            return res
+                .status(400)
+                .json({ message: "Invalid follow-up ID format" });
+        }
+
+        const followUp = await FollowUp.findByIdAndUpdate(
+            req.params.id,
+            req.body,
+            { new: true, runValidators: true },
+        );
+
+        if (!followUp) {
+            console.log("Follow-up not found with ID:", req.params.id);
             return res.status(404).json({ message: "Follow-up not found" });
         }
 
-        followUps[index] = { ...followUps[index], ...req.body };
-        res.json(followUps[index]);
+        console.log("Follow-up updated successfully:", followUp._id);
+        res.json(followUp);
     } catch (err) {
+        console.error("Update error:", err);
         res.status(400).json({ message: err.message });
     }
 });
 
 // DELETE Follow-up
-router.delete("/:id", (req, res) => {
+router.delete("/:id", async (req, res) => {
     try {
-        const index = followUps.findIndex((f) => f.id == req.params.id);
-        if (index === -1) {
+        // Validate MongoDB ObjectId
+        if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+            return res
+                .status(400)
+                .json({ message: "Invalid follow-up ID format" });
+        }
+
+        const followUp = await FollowUp.findByIdAndDelete(req.params.id);
+
+        if (!followUp) {
             return res.status(404).json({ message: "Follow-up not found" });
         }
 
-        const deleted = followUps.splice(index, 1);
-        res.json({ message: "Follow-up deleted", data: deleted[0] });
+        res.json({ message: "Follow-up deleted", data: followUp });
     } catch (err) {
+        console.error("Delete error:", err);
         res.status(500).json({ message: err.message });
     }
 });

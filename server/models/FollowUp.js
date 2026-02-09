@@ -4,7 +4,6 @@ const followUpSchema = new mongoose.Schema({
     enqId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: "Enquiry",
-        required: true,
     },
     enqNo: { type: String, required: true },
     name: { type: String, required: true }, // Cached for easy display
@@ -12,13 +11,13 @@ const followUpSchema = new mongoose.Schema({
     time: String,
     type: {
         type: String,
-        enum: ["Call", "WhatsApp", "Visit"],
-        default: "Call",
+        enum: ["WhatsApp", "Visit"],
+        default: "WhatsApp",
     },
     remarks: { type: String, required: true },
     nextAction: {
         type: String,
-        enum: ["Interested", "Need Time", "Not Interested", "Converted"],
+        enum: ["Followup", "Sales", "Drop"],
         required: true,
     },
     status: { type: String, default: "Scheduled" }, // Scheduled, Missed, Completed
