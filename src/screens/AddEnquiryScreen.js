@@ -1,789 +1,1226 @@
-import React, { useState, useEffect, useRef } from "react";
+import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
+import { LinearGradient } from "expo-linear-gradient";
+import React, { useEffect, useRef, useState } from "react";
 import {
+    ActivityIndicator,
+    Animated,
+    Dimensions,
+    Image,
+    KeyboardAvoidingView,
+    Modal,
+    Platform,
+    ScrollView,
+    StatusBar,
     StyleSheet,
     Text,
-    View,
     TextInput,
     TouchableOpacity,
-    ScrollView,
-    Alert,
-    SafeAreaView,
-    KeyboardAvoidingView,
-    Platform,
-    StatusBar,
-    Modal,
-    TouchableWithoutFeedback,
-    ActivityIndicator,
-    Dimensions,
-    Animated,
-    Easing,
+    View,
 } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
+import { SafeAreaView } from "react-native-safe-area-context";
+import * as addressService from "../services/addressService";
 import { API_URL as GLOBAL_API_URL } from "../services/apiConfig";
+import * as leadSourceService from "../services/leadSourceService";
+import notificationService from "../services/notificationService";
+import { getImageUrl } from "../utils/imageHelper";
 
-// --- CONFIGURATION ---
 const API_URL = `${GLOBAL_API_URL}/enquiries`;
+const { width, height } = Dimensions.get("window");
 
-const ENQUIRY_TYPE_OPTIONS = ["Normal", "High", "Medium"];
-const LEAD_SOURCE_OPTIONS = [
-    "Friends",
-    "Employee Referral",
-    "Job Portal",
-    "Social Media",
-    "Consultancy",
-    "Company Website",
-];
-
-// --- NEW THEME: VIBRANT CLAY ---
-const THEME = {
-    bg: "#F8F9FC", // Very light grey/white
-    surface: "#FFFFFF",
-
-    primary: "#6366F1", // Indigo
-    accent: "#EC4899", // Pink
-    gradientStart: "#8B5CF6", // Violet
-    gradientEnd: "#EC4899", // Pink
-
-    textMain: "#1E293B", // Dark Slate
-    textSec: "#64748B", // Grey
-    textLight: "#94A3B8", // Light Grey
-
-    shadowColorPrimary: "rgba(99, 102, 241, 0.4)",
-    shadowColorAccent: "rgba(236, 72, 153, 0.4)",
-
-    border: "#E2E8F0",
+// Modern 2026 Color Palette
+const COLORS = {
+    primary: "#6366f1",
+    primaryDark: "#4f46e5",
+    secondary: "#8b5cf6",
+    success: "#10b981",
+    warning: "#f59e0b",
+    danger: "#ef4444",
+    dark: "#1e293b",
+    gray: {
+        50: "#f8fafc",
+        100: "#f1f5f9",
+        200: "#e2e8f0",
+        300: "#cbd5e1",
+        400: "#94a3b8",
+        500: "#64748b",
+        600: "#475569",
+        700: "#334155",
+        800: "#1e293b",
+        900: "#0f172a",
+    },
+    white: "#ffffff",
+    gradient: ["#6366f1", "#8b5cf6"],
 };
 
-// --- ANIMATED BACKGROUND COMPONENT ---
-const ClayBackground = () => {
-    const spinValue = useRef(new Animated.Value(0)).current;
-    const moveValue = useRef(new Animated.Value(0)).current;
-
-    useEffect(() => {
-        Animated.loop(
-            Animated.timing(spinValue, {
-                toValue: 1,
-                duration: 20000,
-                easing: Easing.linear,
-                useNativeDriver: true,
-            }),
-        ).start();
-
-        Animated.loop(
-            Animated.sequence([
-                Animated.timing(moveValue, {
-                    toValue: 20,
-                    duration: 4000,
-                    useNativeDriver: true,
-                }),
-                Animated.timing(moveValue, {
-                    toValue: -20,
-                    duration: 4000,
-                    useNativeDriver: true,
-                }),
-            ]),
-        ).start();
-    }, []);
-
-    const spin = spinValue.interpolate({
-        inputRange: [0, 1],
-        outputRange: ["0deg", "360deg"],
-    });
-
-    return (
-        <View style={StyleSheet.absoluteFillObject}>
-            <View style={StyleSheet.absoluteFillObject} />
-
-            {/* Animated Blob 1 */}
-            <Animated.View
-                style={[
-                    styles.blobLarge,
-                    {
-                        top: -100,
-                        right: -100,
-                        backgroundColor: "rgba(139, 92, 246, 0.15)", // Violet tint
-                        transform: [{ rotate: spin }],
-                    },
-                ]}
-            />
-
-            {/* Animated Blob 2 */}
-            <Animated.View
-                style={[
-                    styles.blobMedium,
-                    {
-                        bottom: -50,
-                        left: -50,
-                        backgroundColor: "rgba(236, 72, 153, 0.15)", // Pink tint
-                        transform: [{ translateY: moveValue }],
-                    },
-                ]}
-            />
-
-            {/* Pattern overlay */}
-            <View style={styles.gridPattern} />
-        </View>
-    );
-};
-
-// --- COMPONENT: CLAY INPUT (Card Style) ---
-const ClayInput = ({
-    label,
-    value,
-    onChangeText,
-    placeholder,
-    iconName,
-    keyboardType,
-    style,
-}) => {
-    const [focused, setFocused] = useState(false);
-
-    return (
-        <View style={[styles.inputCard, style]}>
-            <View style={styles.inputHeader}>
-                <Ionicons
-                    name={iconName}
-                    size={20}
-                    color={focused ? THEME.primary : THEME.textSec}
-                />
-                <Text
-                    style={[
-                        styles.inputLabel,
-                        { color: focused ? THEME.primary : THEME.textMain },
-                    ]}>
-                    {label}
-                </Text>
-            </View>
-            <TextInput
-                value={value}
-                onChangeText={onChangeText}
-                placeholder={placeholder}
-                placeholderTextColor={THEME.textLight}
-                keyboardType={keyboardType}
-                onFocus={() => setFocused(true)}
-                onBlur={() => setFocused(false)}
-                style={styles.textInput}
-                cursorColor={THEME.primary}
-            />
-        </View>
-    );
-};
-
-// --- COMPONENT: CLAY DROPDOWN ---
-const ClayDropdown = ({ label, value, onSelect, options, iconName }) => {
-    const [show, setShow] = useState(false);
-
-    return (
-        <TouchableOpacity
-            activeOpacity={0.9}
-            onPress={() => setShow(true)}
-            style={[
-                styles.inputCard,
-                value ? styles.activeCard : null,
-                { justifyContent: "center", height: 70 },
-            ]}>
-            <View style={styles.inputHeader}>
-                <Ionicons
-                    name={iconName}
-                    size={20}
-                    color={value ? THEME.primary : THEME.textSec}
-                />
-                <Text
-                    style={[
-                        styles.inputLabel,
-                        { color: value ? THEME.primary : THEME.textMain },
-                    ]}>
-                    {label}
-                </Text>
-            </View>
-
-            <View style={styles.dropdownValueContainer}>
-                <Text style={styles.dropdownText}>
-                    {value || "Select Option"}
-                </Text>
-                <Ionicons
-                    name="chevron-forward"
-                    size={20}
-                    color={THEME.textLight}
-                />
-            </View>
-
-            <Modal
-                visible={show}
-                transparent
-                animationType="fade"
-                onRequestClose={() => setShow(false)}>
-                <TouchableWithoutFeedback onPress={() => setShow(false)}>
-                    <View style={styles.modalOverlay}>
-                        <TouchableWithoutFeedback onPress={() => {}}>
-                            <View style={styles.sheetContainer}>
-                                <View style={styles.sheetHandle} />
-                                <Text style={styles.sheetTitle}>{label}</Text>
-                                <ScrollView bounces={false}>
-                                    {options.map((opt, i) => (
-                                        <TouchableOpacity
-                                            key={i}
-                                            style={styles.sheetOption}
-                                            onPress={() => {
-                                                onSelect(opt);
-                                                setShow(false);
-                                            }}>
-                                            <Text
-                                                style={[
-                                                    styles.sheetOptionText,
-                                                    {
-                                                        color:
-                                                            value === opt
-                                                                ? THEME.primary
-                                                                : THEME.textMain,
-                                                    },
-                                                ]}>
-                                                {opt}
-                                            </Text>
-                                            {value === opt && (
-                                                <Ionicons
-                                                    name="checkmark-circle"
-                                                    size={22}
-                                                    color={THEME.primary}
-                                                />
-                                            )}
-                                        </TouchableOpacity>
-                                    ))}
-                                </ScrollView>
-                            </View>
-                        </TouchableWithoutFeedback>
-                    </View>
-                </TouchableWithoutFeedback>
-            </Modal>
-        </TouchableOpacity>
-    );
-};
-
-// --- MAIN SCREEN ---
 export default function AddEnquiryScreen({ route, navigation }) {
+    const editingEnquiry = route?.params?.enquiry; // Get enquiry from navigation params
+    const isEditMode = !!editingEnquiry; // Determine if we're in edit mode
+
     const [form, setForm] = useState({
-        enqType: "",
+        enqType: "Normal",
         source: "",
         name: "",
         mobile: "",
-        altMobile: "",
         address: "",
         product: "",
         cost: "",
+        image: null,
     });
     const [loading, setLoading] = useState(false);
-    const [expanded, setExpanded] = useState(false);
+    const [showAdvanced, setShowAdvanced] = useState(false);
+    const [errors, setErrors] = useState({});
+    const [leadSources, setLeadSources] = useState([]);
+    const [loadingSources, setLoadingSources] = useState(false);
+    const [showSourceModal, setShowSourceModal] = useState(false);
+    const [addressPredictions, setAddressPredictions] = useState([]);
+    const [addressLoading, setAddressLoading] = useState(false);
+    const [showAddressDropdown, setShowAddressDropdown] = useState(false);
 
-    // Animation for Accordion
-    const heightAnim = useRef(new Animated.Value(0)).current;
-    const rotateAnim = useRef(new Animated.Value(0)).current;
+    // Toast animation state
+    const [toastMessage, setToastMessage] = useState("");
+    const [toastType, setToastType] = useState("success"); // "success" | "error"
+    const [toastVisible, setToastVisible] = useState(false);
+    const toastAnimValue = useRef(new Animated.Value(0)).current;
+    const toastTimeoutRef = useRef(null);
+
+    // Animation
+    const fadeAnim = React.useRef(new Animated.Value(0)).current;
+
+    // Ensure notifications are initialized on mount
+    useEffect(() => {
+        notificationService.initializeNotifications();
+    }, []);
 
     useEffect(() => {
-        Animated.timing(heightAnim, {
-            toValue: expanded ? 1 : 0,
-            duration: 300,
-            useNativeDriver: false, // Height requires false
-        }).start();
-
-        Animated.timing(rotateAnim, {
-            toValue: expanded ? 1 : 0,
-            duration: 300,
+        // Entrance animation
+        Animated.timing(fadeAnim, {
+            toValue: 1,
+            duration: 600,
             useNativeDriver: true,
         }).start();
-    }, [expanded]);
 
-    const update = (field) => (val) => setForm((p) => ({ ...p, [field]: val }));
+        // Fetch lead sources
+        const fetchLeadSources = async () => {
+            try {
+                setLoadingSources(true);
+                const groups = await leadSourceService.getAllLeadSources();
+                const sources = [];
+                groups?.forEach((group) => {
+                    group.sources?.forEach((source) => {
+                        sources.push({
+                            id: source._id,
+                            name: source.name,
+                            group: group.name,
+                        });
+                    });
+                });
+                setLeadSources(sources);
+            } catch (error) {
+                console.error("Error fetching lead sources:", error);
+            } finally {
+                setLoadingSources(false);
+            }
+        };
+        fetchLeadSources();
 
-    const submit = async () => {
-        if (!form.name || !form.mobile || !form.product)
-            return Alert.alert(
-                "Required",
-                "Please fill Name, Mobile and Product.",
+        // Pre-fill form if editing
+        if (isEditMode && editingEnquiry) {
+            setForm({
+                enqType: editingEnquiry.enqType || "Normal",
+                source: editingEnquiry.source || "",
+                name: editingEnquiry.name || "",
+                mobile: editingEnquiry.mobile || "",
+                address: editingEnquiry.address || "",
+                product: editingEnquiry.product || "",
+                cost: editingEnquiry.cost?.toString() || "",
+                image: editingEnquiry.image || null,
+            });
+            // Show advanced section if there's address data
+            if (editingEnquiry.address) {
+                setShowAdvanced(true);
+            }
+        }
+    }, [isEditMode, editingEnquiry]);
+
+    const updateField = (field, value) => {
+        setForm((prev) => ({ ...prev, [field]: value }));
+        if (errors[field]) {
+            setErrors((prev) => ({ ...prev, [field]: null }));
+        }
+    };
+
+    const pickImage = async () => {
+        // No request permissions needed for launching image library in Expo SDK 53+
+        let result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: true,
+            aspect: [1, 1],
+            quality: 0.5,
+            base64: true, // Get base64 data
+        });
+
+        if (!result.canceled) {
+            const asset = result.assets[0];
+            // Store as base64 data URL for database storage
+            const base64Image = `data:image/jpeg;base64,${asset.base64}`;
+            updateField("image", base64Image);
+        }
+    };
+
+    // Handle address input change with debouncing
+    const addressTimeoutRef = React.useRef(null);
+    const handleAddressChange = (text) => {
+        updateField("address", text);
+
+        // Clear previous timeout
+        if (addressTimeoutRef.current) {
+            clearTimeout(addressTimeoutRef.current);
+        }
+
+        if (text.trim().length >= 3) {
+            setAddressLoading(true);
+            addressTimeoutRef.current = setTimeout(async () => {
+                try {
+                    const predictions =
+                        await addressService.getAddressPredictions(text);
+                    setAddressPredictions(predictions);
+                    setShowAddressDropdown(true);
+                } catch (error) {
+                    console.error("Error fetching predictions:", error);
+                } finally {
+                    setAddressLoading(false);
+                }
+            }, 300);
+        } else {
+            setAddressPredictions([]);
+            setShowAddressDropdown(false);
+        }
+    };
+
+    // Handle address selection from dropdown
+    const handleAddressSelect = async (prediction) => {
+        setShowAddressDropdown(false);
+        setAddressLoading(true);
+
+        try {
+            const details = await addressService.getPlaceDetails(
+                prediction.placeId,
             );
+            if (details) {
+                updateField("address", details.address);
+            } else {
+                updateField("address", prediction.fullAddress);
+            }
+        } catch (error) {
+            console.error("Error selecting address:", error);
+            updateField("address", prediction.fullAddress);
+        } finally {
+            setAddressLoading(false);
+        }
+    };
+
+    const validateForm = () => {
+        const newErrors = {};
+
+        // In edit mode, only validate fields that are being changed (non-empty)
+        // In create mode, validate all required fields
+        if (!isEditMode) {
+            // Create mode: strict validation
+            if (!form.name?.trim()) newErrors.name = "Name is required";
+            if (!form.mobile?.trim()) newErrors.mobile = "Mobile is required";
+            if (!form.product?.trim()) newErrors.product = "Product is required";
+        } else {
+            // Edit mode: only validate if field has value (optional validation)
+            // This allows editing specific fields without requiring all fields
+            if (form.name && !form.name.trim()) {
+                newErrors.name = "Name cannot be empty";
+            }
+            if (form.mobile && !form.mobile.trim()) {
+                newErrors.mobile = "Mobile cannot be empty";
+            }
+            if (form.product && !form.product.trim()) {
+                newErrors.product = "Product cannot be empty";
+            }
+        }
+
+        // Validate mobile format if provided
+        if (form.mobile?.trim() && form.mobile.trim().length !== 10) {
+            newErrors.mobile = "Mobile must be 10 digits";
+        }
+
+        setErrors(newErrors);
+        return Object.keys(newErrors).length === 0;
+    };
+
+    // Show animated toast popup
+    const showToast = (message, type = "success", autoDismiss = true) => {
+        // Clear any existing timeout
+        if (toastTimeoutRef.current) {
+            clearTimeout(toastTimeoutRef.current);
+        }
+
+        setToastMessage(message);
+        setToastType(type);
+        setToastVisible(true);
+
+        // Animate in
+        Animated.spring(toastAnimValue, {
+            toValue: 1,
+            useNativeDriver: true,
+            tension: 50,
+            friction: 10,
+        }).start();
+
+        // Auto-dismiss if requested
+        if (autoDismiss) {
+            toastTimeoutRef.current = setTimeout(() => {
+                Animated.timing(toastAnimValue, {
+                    toValue: 0,
+                    duration: 300,
+                    useNativeDriver: true,
+                }).start(() => {
+                    setToastVisible(false);
+                });
+            }, 2500);
+        }
+    };
+
+    const handleSubmit = async () => {
+        if (!validateForm()) return;
 
         setLoading(true);
         try {
-            const res = await fetch(API_URL, {
-                method: "POST",
+            const url = isEditMode
+                ? `${API_URL}/${editingEnquiry._id}`
+                : API_URL;
+            const method = isEditMode ? "PUT" : "POST";
+
+            let response;
+
+            // Always use JSON (images are now base64 encoded)
+            response = await fetch(url, {
+                method: method,
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ ...form, cost: Number(form.cost) || 0 }),
+                body: JSON.stringify(form),
             });
-            const data = await res.json();
-            if (res.ok) {
-                Alert.alert("Success", "Enquiry added!", [
-                    {
-                        text: "Great!",
-                        onPress: () => {
-                            navigation.goBack();
-                            route.params?.onEnquirySaved?.(data);
-                        },
-                    },
-                ]);
+
+            const data = await response.json();
+            if (response.ok) {
+                // Success: show toast and notification
+                const successMessage = isEditMode
+                    ? "✅ Enquiry updated successfully!"
+                    : "✅ Enquiry created successfully!";
+                showToast(successMessage, "success", true);
+
+                // Show success notification with enquiry details
+                if (!isEditMode) {
+                    await notificationService.showEnquirySuccessNotification({
+                        name: form.name,
+                        source: form.source,
+                        product: form.product,
+                    });
+                }
+
+                // Reset form and close after showing success toast
+                setTimeout(() => {
+                    if (!isEditMode) {
+                        setForm({
+                            enqType: "Normal",
+                            source: "",
+                            name: "",
+                            mobile: "",
+                            address: "",
+                            product: "",
+                            cost: "",
+                            image: null,
+                        });
+                        setShowAdvanced(false);
+                        setAddressPredictions([]);
+                        setShowAddressDropdown(false);
+                        setAddressLoading(false);
+                    }
+
+                    // Call the callback and close form
+                    route.params?.onEnquirySaved?.(data);
+
+                    // Close the form after 1.2 seconds total (0.3s + 0.9s)
+                    setTimeout(() => {
+                        navigation.goBack();
+                    }, 900);
+                }, 300);
             } else {
-                Alert.alert("Error", data.message || "Failed.");
+                // Show error notification
+                const errorMessage =
+                    data.message ||
+                    (isEditMode
+                        ? "Failed to update enquiry"
+                        : "Failed to create enquiry");
+                await notificationService.showEnquiryErrorNotification(
+                    errorMessage,
+                );
+                showToast(errorMessage, "error");
             }
-        } catch (e) {
-            Alert.alert("Network", "Connection error.");
+        } catch (error) {
+            // Show error notification for network errors
+            await notificationService.showEnquiryErrorNotification(
+                error.message || "Network error. Please try again.",
+            );
+            showToast(
+                error.message || "Network error. Please try again.",
+                "error",
+            );
         } finally {
             setLoading(false);
         }
     };
 
-    const rotateInterpolate = rotateAnim.interpolate({
-        inputRange: [0, 1],
-        outputRange: ["0deg", "180deg"],
-    });
+    // --- RENDER HELPERS ---
+    const renderInput = (
+        label,
+        value,
+        onChange,
+        placeholder,
+        icon,
+        keyboardType = "default",
+        error,
+        autoCapitalize = "sentences",
+    ) => (
+        <View style={styles.inputWrapper}>
+            <Text style={styles.inputLabel}>{label}</Text>
+            <View
+                style={[
+                    styles.inputContainer,
+                    error && styles.inputErrorBorder,
+                    { borderColor: error ? COLORS.danger : COLORS.gray[200] },
+                ]}>
+                <View style={styles.inputIconBox}>
+                    <Ionicons name={icon} size={20} color={COLORS.gray[400]} />
+                </View>
+                <TextInput
+                    style={styles.inputField}
+                    value={value}
+                    onChangeText={onChange}
+                    placeholder={placeholder}
+                    placeholderTextColor={COLORS.gray[400]}
+                    keyboardType={keyboardType}
+                    autoCapitalize={autoCapitalize}
+                />
+            </View>
+            {error && <Text style={styles.errorText}>{error}</Text>}
+        </View>
+    );
 
     return (
         <SafeAreaView style={styles.container}>
-            <StatusBar barStyle="dark-content" backgroundColor={THEME.bg} />
+            <StatusBar
+                barStyle="light-content"
+                backgroundColor={COLORS.primary}
+            />
 
-            <ClayBackground />
-
-            <KeyboardAvoidingView
-                style={{ flex: 1 }}
-                behavior={Platform.OS === "ios" ? "padding" : "height"}>
-                {/* Header */}
-                <View style={styles.header}>
+            {/* Header */}
+            <LinearGradient
+                colors={COLORS.gradient}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.header}>
+                <View style={styles.headerTop}>
                     <TouchableOpacity
-                        onPress={() => navigation.goBack()}
-                        style={styles.backBtn}>
+                        style={styles.backButton}
+                        onPress={() => navigation.goBack()}>
                         <Ionicons
                             name="arrow-back"
                             size={24}
-                            color={THEME.textMain}
+                            color={COLORS.white}
                         />
                     </TouchableOpacity>
-                    <View style={styles.headerTitleContainer}>
-                        <Text style={styles.headerTitle}>New Lead</Text>
-                        <View style={styles.headerDot} />
-                    </View>
-                    <View style={{ width: 24 }} />
+                    <Text style={styles.headerTitle}>
+                        {isEditMode ? "Edit Enquiry" : "New Enquiry"}
+                    </Text>
+                    <TouchableOpacity style={styles.helpButton}>
+                        <Ionicons
+                            name="help-circle-outline"
+                            size={24}
+                            color={COLORS.white}
+                        />
+                    </TouchableOpacity>
                 </View>
+                <Text style={styles.headerSubtitle}>
+                    {isEditMode
+                        ? "Update the enquiry details below"
+                        : "Fill in the details below to create a new lead"}
+                </Text>
+            </LinearGradient>
 
+            {/* Main Content */}
+            <KeyboardAvoidingView
+                style={styles.keyboardContainer}
+                behavior={Platform.OS === "ios" ? "padding" : "height"}>
                 <ScrollView
+                    style={styles.scrollView}
                     contentContainerStyle={styles.scrollContent}
-                    keyboardShouldPersistTaps="handled"
-                    showsVerticalScrollIndicator={false}>
-                    {/* Intro Card */}
-                    <View style={styles.introCard}>
-                        <LinearGradient
-                            colors={[THEME.gradientStart, THEME.gradientEnd]}
-                            style={styles.introGradient}
-                            start={{ x: 0, y: 0 }}
-                            end={{ x: 1, y: 1 }}>
-                            <View style={styles.introContent}>
-                                <View style={styles.introIconBox}>
-                                    <Ionicons
-                                        name="person-add"
-                                        size={28}
-                                        color="#FFF"
-                                    />
-                                </View>
-                                <View>
-                                    <Text style={styles.introTitle}>
-                                        Create Enquiry
-                                    </Text>
-                                    <Text style={styles.introSub}>
-                                        Enter details to proceed
-                                    </Text>
-                                </View>
-                            </View>
-                        </LinearGradient>
-                    </View>
-
-                    {/* Dropdowns Row */}
-                    <View style={styles.row}>
-                        <ClayDropdown
-                            label="Priority"
-                            value={form.enqType}
-                            onSelect={update("enqType")}
-                            options={ENQUIRY_TYPE_OPTIONS}
-                            iconName="flag"
-                        />
-                        <ClayDropdown
-                            label="Source"
-                            value={form.source}
-                            onSelect={update("source")}
-                            options={LEAD_SOURCE_OPTIONS}
-                            iconName="people"
-                        />
-                    </View>
-
-                    {/* Main Inputs */}
-                    <ClayInput
-                        label="Full Name"
-                        value={form.name}
-                        onChangeText={update("name")}
-                        placeholder="e.g. John Doe"
-                        iconName="person"
-                    />
-                    <ClayInput
-                        label="Mobile Number"
-                        value={form.mobile}
-                        onChangeText={update("mobile")}
-                        placeholder="e.g. 98765 43210"
-                        keyboardType="phone-pad"
-                        iconName="call"
-                    />
-                    <ClayInput
-                        label="Product / Service"
-                        value={form.product}
-                        onChangeText={update("product")}
-                        placeholder="e.g. Premium Plan"
-                        iconName="cube"
-                    />
-
-                    {/* Expandable Accordion */}
-                    <TouchableOpacity
-                        activeOpacity={0.8}
-                        onPress={() => setExpanded(!expanded)}
-                        style={styles.accordionTrigger}>
-                        <View style={styles.accordionLeft}>
-                            <View
-                                style={[
-                                    styles.iconCircle,
-                                    {
-                                        backgroundColor: expanded
-                                            ? "rgba(236, 72, 153, 0.1)"
-                                            : "#F1F5F9",
-                                    },
-                                ]}>
-                                <Ionicons
-                                    name={
-                                        expanded
-                                            ? "options"
-                                            : "ellipsis-horizontal-circle"
-                                    }
-                                    size={20}
-                                    color={
-                                        expanded ? THEME.accent : THEME.textSec
-                                    }
-                                />
-                            </View>
-                            <Text style={styles.accordionText}>
-                                More Details
-                            </Text>
-                        </View>
-                        <Animated.View
-                            style={{
-                                transform: [{ rotate: rotateInterpolate }],
-                            }}>
-                            <Ionicons
-                                name="chevron-down"
-                                size={24}
-                                color={THEME.textSec}
-                            />
-                        </Animated.View>
-                    </TouchableOpacity>
-
+                    showsVerticalScrollIndicator={false}
+                    keyboardShouldPersistTaps="always">
                     <Animated.View
-                        style={[
-                            styles.accordionContent,
-                            {
-                                height: heightAnim.interpolate({
-                                    inputRange: [0, 1],
-                                    outputRange: [0, 350], // Max height estimate
-                                }),
-                                opacity: heightAnim,
-                            },
-                        ]}>
-                        <ClayInput
-                            label="Alt Mobile"
-                            value={form.altMobile}
-                            onChangeText={update("altMobile")}
-                            placeholder="Optional"
-                            keyboardType="phone-pad"
-                            iconName="call-outline"
-                        />
-                        <ClayInput
-                            label="Address"
-                            value={form.address}
-                            onChangeText={update("address")}
-                            placeholder="City, State"
-                            iconName="location-outline"
-                        />
-                        <ClayInput
-                            label="Estimated Value"
-                            value={form.cost}
-                            onChangeText={update("cost")}
-                            placeholder="0.00"
-                            keyboardType="decimal-pad"
-                            iconName="cash"
-                        />
-                    </Animated.View>
+                        style={[styles.contentContainer, { opacity: fadeAnim }]}>
 
-                    <View style={{ height: 20 }} />
-                </ScrollView>
+                        {/* 1. Categorization Card */}
+                        <View style={styles.card}>
+                            <View style={styles.cardHeader}>
+                                <Ionicons name="pricetags-outline" size={20} color={COLORS.primary} />
+                                <Text style={styles.cardTitle}>Categorization</Text>
+                            </View>
 
-                {/* Sticky Button */}
-                <View style={styles.footer}>
-                    <TouchableOpacity
-                        onPress={submit}
-                        activeOpacity={0.85}
-                        disabled={loading}
-                        style={styles.btnContainer}>
-                        <LinearGradient
-                            colors={[THEME.gradientStart, THEME.gradientEnd]}
-                            style={styles.btnGradient}
-                            start={{ x: 0, y: 0 }}
-                            end={{ x: 1, y: 0 }}>
-                            {loading ? (
-                                <ActivityIndicator color="#fff" />
-                            ) : (
-                                <View style={styles.btnContent}>
-                                    <Text style={styles.btnText}>
-                                        Save Enquiry
-                                    </Text>
-                                    <Ionicons
-                                        name="rocket"
-                                        size={20}
-                                        color="#fff"
-                                        style={{ marginLeft: 8 }}
-                                    />
+                            <View style={styles.inputWrapper}>
+                                <Text style={styles.inputLabel}>Priority Level</Text>
+                                <View style={styles.priorityGrid}>
+                                    {["High", "Medium", "Normal"].map((priority) => {
+                                        const isActive = form.enqType === priority;
+                                        let activeColor = COLORS.success;
+                                        if (priority === "High") activeColor = COLORS.danger;
+                                        if (priority === "Medium") activeColor = COLORS.warning;
+                                        if (priority === "Normal") activeColor = COLORS.primary;
+
+                                        return (
+                                            <TouchableOpacity
+                                                key={priority}
+                                                style={[
+                                                    styles.priorityCard,
+                                                    isActive && { backgroundColor: activeColor + "15", borderColor: activeColor }
+                                                ]}
+                                                onPress={() => updateField("enqType", priority)}>
+                                                <View style={[
+                                                    styles.priorityDot,
+                                                    { backgroundColor: isActive ? activeColor : COLORS.gray[300] }
+                                                ]} />
+                                                <Text style={[
+                                                    styles.priorityText,
+                                                    isActive && { color: activeColor, fontWeight: "700" }
+                                                ]}>
+                                                    {priority}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        );
+                                    })}
+                                </View>
+                            </View>
+
+                            <View style={styles.inputWrapper}>
+                                <Text style={styles.inputLabel}>Lead Source</Text>
+                                <TouchableOpacity
+                                    style={styles.dropdownButton}
+                                    onPress={() => setShowSourceModal(true)}>
+                                    <View style={styles.dropdownLeft}>
+                                        <View style={styles.inputIconBox}>
+                                            <Ionicons name="share-social-outline" size={20} color={COLORS.gray[400]} />
+                                        </View>
+                                        <Text style={form.source ? styles.dropdownText : styles.dropdownPlaceholder}>
+                                            {form.source || "Select Source "}
+                                        </Text>
+                                    </View>
+                                    <Ionicons name="chevron-down" size={20} color={COLORS.gray[400]} />
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+
+                        {/* 2. Customer Details Card */}
+                        <View style={styles.card}>
+                            <View style={styles.cardHeader}>
+                                <Ionicons name="person-outline" size={20} color={COLORS.primary} />
+                                <Text style={styles.cardTitle}>Customer Details</Text>
+                            </View>
+
+
+
+                            {renderInput(
+                                "Full Name *",
+                                form.name,
+                                (text) => updateField("name", text),
+                                "Enter customer full name",
+                                "person-outline",
+                                "default",
+                                errors.name
+                            )}
+
+                            {renderInput(
+                                "Mobile Number *",
+                                form.mobile,
+                                (text) => updateField("mobile", text),
+                                "Enter 10-digit number",
+                                "call-outline",
+                                "phone-pad",
+                                errors.mobile
+                            )}
+                        </View>
+
+                        {/* 3. Requirement Card */}
+                        <View style={styles.card}>
+                            <View style={styles.cardHeader}>
+                                <Ionicons name="cart-outline" size={20} color={COLORS.primary} />
+                                <Text style={styles.cardTitle}>Requirement</Text>
+                            </View>
+
+                            {renderInput(
+                                "Product / Service *",
+                                form.product,
+                                (text) => updateField("product", text),
+                                "What are they interested in?",
+                                "cube-outline",
+                                "default",
+                                errors.product
+                            )}
+
+                            {renderInput(
+                                "Estimated Value (₹)",
+                                form.cost,
+                                (text) => updateField("cost", text),
+                                "0.00",
+                                "cash-outline",
+                                "decimal-pad"
+                            )}
+                        </View>
+
+                        {/* 4. Location (Toggle) */}
+                        <View style={styles.card}>
+                            <TouchableOpacity
+                                style={styles.accordionHeader}
+                                onPress={() => setShowAdvanced(!showAdvanced)}>
+                                <View style={styles.accordionLeft}>
+                                    <View style={[styles.inputIconBox, { backgroundColor: COLORS.primary + "10" }]}>
+                                        <Ionicons name="location-outline" size={20} color={COLORS.primary} />
+                                    </View>
+                                    <Text style={styles.cardTitle}>Location & Address</Text>
+                                </View>
+                                <Ionicons name={showAdvanced ? "chevron-up" : "chevron-down"} size={20} color={COLORS.gray[400]} />
+                            </TouchableOpacity>
+
+                            {showAdvanced && (
+                                <View style={styles.accordionContent}>
+                                    <View style={styles.inputWrapper}>
+                                        <Text style={styles.inputLabel}>Full Address</Text>
+                                        <View style={[styles.inputContainer, { alignItems: 'flex-start', paddingVertical: 12, height: 'auto', minHeight: 100 }]}>
+                                            <View style={[styles.inputIconBox, { marginTop: 0 }]}>
+                                                <Ionicons name="map-outline" size={20} color={COLORS.gray[400]} />
+                                            </View>
+                                            <View style={{ flex: 1 }}>
+                                                <TextInput
+                                                    style={[styles.inputField, { height: '100%', textAlignVertical: 'top', paddingTop: 8 }]}
+                                                    value={form.address}
+                                                    onChangeText={handleAddressChange}
+                                                    placeholder="Enter full address or city..."
+                                                    placeholderTextColor={COLORS.gray[400]}
+                                                    multiline
+                                                />
+                                            </View>
+                                        </View>
+
+                                        {/* Address Predictions */}
+                                        {showAddressDropdown && addressPredictions.length > 0 && (
+                                            <View style={styles.predictionsContainer}>
+                                                {addressLoading && (
+                                                    <ActivityIndicator size="small" color={COLORS.primary} style={{ margin: 10 }} />
+                                                )}
+                                                {addressPredictions.map((prediction, index) => (
+                                                    <TouchableOpacity
+                                                        key={prediction.placeId || index}
+                                                        style={styles.predictionItem}
+                                                        onPress={() => handleAddressSelect(prediction)}>
+                                                        <Ionicons name="location-sharp" size={16} color={COLORS.gray[400]} style={{ marginTop: 2 }} />
+                                                        <View style={{ marginLeft: 10, flex: 1 }}>
+                                                            <Text style={styles.predictionMain}>{prediction.mainText}</Text>
+                                                            <Text style={styles.predictionSub}>{prediction.secondaryText}</Text>
+                                                        </View>
+                                                    </TouchableOpacity>
+                                                ))}
+                                            </View>
+                                        )}
+                                        <View style={styles.imageUploadContainer}>
+                                            <TouchableOpacity onPress={pickImage} style={styles.imagePicker}>
+                                                {form.image ? (
+                                                    <Image source={{ uri: getImageUrl(form.image) }} style={styles.uploadedImage} />
+                                                ) : (
+                                                    <View style={styles.imagePlaceholder}>
+                                                        <Ionicons name="camera-outline" size={32} color={COLORS.primary} />
+                                                        <Text style={styles.uploadText}>Add Photo</Text>
+                                                    </View>
+                                                )}
+                                                <View style={styles.editIconBadge}>
+                                                    <Ionicons name="pencil" size={12} color={COLORS.white} />
+                                                </View>
+                                            </TouchableOpacity>
+                                        </View>
+                                    </View>
                                 </View>
                             )}
-                        </LinearGradient>
-                    </TouchableOpacity>
-                </View>
+
+
+                        </View>
+
+                        {/* Image Upload for Customer */}
+
+
+                        {/* Spacer for bottom button */}
+                        <View style={{ height: 100 }} />
+
+                    </Animated.View>
+                </ScrollView>
             </KeyboardAvoidingView>
+
+            {/* Footer Button */}
+            <View style={styles.footerContainer}>
+                <TouchableOpacity
+                    style={[styles.submitButton, loading && styles.disabledButton]}
+                    onPress={handleSubmit}
+                    activeOpacity={0.8}
+                    disabled={loading}>
+                    <LinearGradient
+                        colors={COLORS.gradient}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={styles.gradientButton}>
+                        {loading ? (
+                            <ActivityIndicator color={COLORS.white} />
+                        ) : (
+                            <>
+                                <Text style={styles.submitText}>Create Enquiry</Text>
+                                <View style={styles.iconCircle}>
+                                    <Ionicons name="arrow-forward" size={18} color={COLORS.primary} />
+                                </View>
+                            </>
+                        )}
+                    </LinearGradient>
+                </TouchableOpacity>
+            </View>
+
+            {/* Source Selection Modal */}
+            <Modal
+                visible={showSourceModal}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setShowSourceModal(false)}>
+                <View style={styles.modalOverlay}>
+                    <View style={styles.modalContent}>
+                        <View style={styles.modalHeader}>
+                            <Text style={styles.modalTitle}>Select Lead Source</Text>
+                            <TouchableOpacity onPress={() => setShowSourceModal(false)} style={styles.closeBtn}>
+                                <Ionicons name="close" size={24} color={COLORS.gray[600]} />
+                            </TouchableOpacity>
+                        </View>
+
+                        {loadingSources ? (
+                            <View style={styles.centerBox}>
+                                <ActivityIndicator size="large" color={COLORS.primary} />
+                                <Text style={styles.loadingText}>Loading sources...</Text>
+                            </View>
+                        ) : (
+                            <ScrollView style={styles.modalScroll}>
+                                <View style={styles.modalGrid}>
+                                    {leadSources.map((source) => (
+                                        <TouchableOpacity
+                                            key={source.id}
+                                            style={[
+                                                styles.sourceCard,
+                                                form.source === source.name && styles.sourceCardActive
+                                            ]}
+                                            onPress={() => {
+                                                updateField("source", source.name);
+                                                setShowSourceModal(false);
+                                            }}>
+                                            <View style={[
+                                                styles.sourceIconBox,
+                                                form.source === source.name ? { backgroundColor: COLORS.white } : { backgroundColor: COLORS.gray[100] }
+                                            ]}>
+                                                <Ionicons
+                                                    name={form.source === source.name ? "checkmark-circle" : "ellipse-outline"}
+                                                    size={24}
+                                                    color={form.source === source.name ? COLORS.primary : COLORS.gray[400]}
+                                                />
+                                            </View>
+                                            <Text style={[
+                                                styles.sourceName,
+                                                form.source === source.name && { color: COLORS.white, fontWeight: "700" }
+                                            ]}>{source.name}</Text>
+                                            {source.group && (
+                                                <Text style={[
+                                                    styles.sourceGroup,
+                                                    form.source === source.name && { color: "rgba(255,255,255,0.8)" }
+                                                ]}>{source.group}</Text>
+                                            )}
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+                            </ScrollView>
+                        )}
+                    </View>
+                </View>
+            </Modal>
+
+            {/* Animated Toast Popup */}
+            {toastVisible && (
+                <Animated.View
+                    style={[
+                        styles.toastContainer,
+                        {
+                            opacity: toastAnimValue,
+                            transform: [{
+                                translateY: toastAnimValue.interpolate({
+                                    inputRange: [0, 1],
+                                    outputRange: [-20, 0],
+                                }),
+                            }],
+                        },
+                    ]}>
+                    <View style={[styles.toastContent, { backgroundColor: toastType === "success" ? COLORS.success : COLORS.danger }]}>
+                        <Ionicons name={toastType === "success" ? "checkmark-circle" : "alert-circle"} size={24} color={COLORS.white} />
+                        <Text style={styles.toastText}>{toastMessage}</Text>
+                    </View>
+                </Animated.View>
+            )}
         </SafeAreaView>
     );
 }
 
-// --- STYLES ---
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: THEME.bg,
-        marginTop: Platform.OS === "android" ? StatusBar.currentHeight : 10,
+        backgroundColor: "#F1F5F9", // Slate 100
     },
-
-    // Background Shapes
-    blobLarge: {
-        position: "absolute",
-        width: 400,
-        height: 400,
-        borderRadius: 200,
-    },
-    blobMedium: {
-        position: "absolute",
-        width: 250,
-        height: 250,
-        borderRadius: 125,
-    },
-    gridPattern: {
-        position: "absolute",
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        opacity: 0.4,
-        backgroundColor: "transparent",
-        backgroundImage: "radial-gradient(#cbd5e1 1px, transparent 1px)", // Simple dot simulation not native, handled by opacity above
-    },
-
-    // Header
     header: {
+        paddingTop: Platform.OS === "ios" ? 50 : 30 + StatusBar.currentHeight,
+        paddingBottom: 25,
+        paddingHorizontal: 24,
+        borderBottomLeftRadius: 30,
+        borderBottomRightRadius: 30,
+        elevation: 8,
+        shadowColor: COLORS.primary,
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.25,
+        shadowRadius: 16,
+    },
+    headerTop: {
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "space-between",
-        paddingHorizontal: 20,
-        paddingTop: 10,
-        paddingBottom: 10,
+        marginBottom: 8,
     },
-    backBtn: {
+    backButton: {
         width: 40,
         height: 40,
-        borderRadius: 12,
-        backgroundColor: "#FFF",
-        alignItems: "center",
-        justifyContent: "center",
-        borderWidth: 1,
-        borderColor: THEME.border,
-    },
-    headerTitleContainer: { flexDirection: "row", alignItems: "center" },
-    headerTitle: {
-        fontSize: 20,
-        fontWeight: "800",
-        color: THEME.textMain,
-        letterSpacing: -0.5,
-    },
-    headerDot: {
-        width: 6,
-        height: 6,
-        borderRadius: 3,
-        backgroundColor: THEME.accent,
-        marginLeft: 8,
-    },
-
-    // Scroll
-    scrollContent: { padding: 20, paddingTop: 10 },
-
-    // Intro Card
-    introCard: { marginBottom: 24, borderRadius: 24, overflow: "hidden" },
-    introGradient: { padding: 20 },
-    introContent: { flexDirection: "row", alignItems: "center" },
-    introIconBox: {
-        width: 50,
-        height: 50,
-        borderRadius: 14,
+        borderRadius: 20,
         backgroundColor: "rgba(255,255,255,0.2)",
         alignItems: "center",
         justifyContent: "center",
-        marginRight: 16,
         borderWidth: 1,
         borderColor: "rgba(255,255,255,0.3)",
     },
-    introTitle: { fontSize: 18, fontWeight: "700", color: "#FFF" },
-    introSub: { fontSize: 13, color: "rgba(255,255,255,0.8)", marginTop: 2 },
-
-    // Row
-    row: {
-        flexDirection: "row",
-        justifyContent: "space-between",
-        marginBottom: 16,
-    },
-    rowView: { width: "48%" }, // Helper for children
-
-    // Cards & Inputs
-    inputCard: {
-        backgroundColor: THEME.surface,
-        borderRadius: 20,
-        padding: 16,
-        marginBottom: 16,
-        borderWidth: 1,
-        borderColor: THEME.border,
-        // Clay Shadow
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.03,
-        shadowRadius: 10,
-        elevation: 2,
-    },
-    activeCard: {
-        borderColor: THEME.primary,
-        shadowColor: THEME.primary,
-        shadowOpacity: 0.15,
-    },
-    inputHeader: {
-        flexDirection: "row",
+    helpButton: {
+        width: 40,
+        height: 40,
         alignItems: "center",
-        marginBottom: 8,
+        justifyContent: "center",
     },
-    inputLabel: {
-        fontSize: 12,
+    headerTitle: {
+        fontSize: 22,
         fontWeight: "700",
-        marginLeft: 8,
-        textTransform: "uppercase",
+        color: COLORS.white,
         letterSpacing: 0.5,
     },
-    textInput: {
-        fontSize: 16,
-        color: THEME.textMain,
-        fontWeight: "500",
-        paddingLeft: 28, // Align with icon space
-        paddingVertical: 4,
+    headerSubtitle: {
+        fontSize: 14,
+        color: "rgba(255,255,255,0.8)",
+        textAlign: "center",
+        marginTop: 5,
     },
-    dropdownValueContainer: {
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "space-between",
-        paddingLeft: 28,
-        marginTop: 4,
+    keyboardContainer: {
+        flex: 1,
     },
-    dropdownText: { fontSize: 16, color: THEME.textLight, fontWeight: "500" },
-
-    // Accordion
-    accordionTrigger: {
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "space-between",
-        backgroundColor: THEME.surface,
-        padding: 16,
+    scrollView: {
+        flex: 1,
+    },
+    scrollContent: {
+        paddingTop: 20,
+        paddingHorizontal: 20,
+        paddingBottom: 120, // space for footer
+    },
+    contentContainer: {
+        gap: 20,
+    },
+    card: {
+        backgroundColor: COLORS.white,
         borderRadius: 20,
-        marginBottom: 8,
-        borderWidth: 1,
-        borderColor: THEME.border,
+        padding: 20,
+        shadowColor: "#64748B",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.08,
+        shadowRadius: 12,
+        elevation: 4,
     },
-    accordionLeft: { flexDirection: "row", alignItems: "center" },
-    iconCircle: {
+    cardHeader: {
+        flexDirection: "row",
+        alignItems: "center",
+        marginBottom: 16,
+        gap: 10,
+    },
+    cardTitle: {
+        fontSize: 16,
+        fontWeight: "700",
+        color: COLORS.gray[800],
+    },
+    inputWrapper: {
+        marginBottom: 16,
+    },
+    inputLabel: {
+        fontSize: 13,
+        fontWeight: "600",
+        color: COLORS.gray[600],
+        marginBottom: 8,
+        marginLeft: 4,
+    },
+    inputContainer: {
+        flexDirection: "row",
+        alignItems: "center",
+        backgroundColor: COLORS.gray[50], // Very light gray bg
+        borderWidth: 1.5,
+        borderColor: COLORS.gray[200],
+        borderRadius: 14,
+        paddingHorizontal: 12,
+        height: 54, // Taller inputs
+    },
+    inputErrorBorder: {
+        borderColor: COLORS.danger,
+        backgroundColor: "#FEF2F2",
+    },
+    inputIconBox: {
         width: 36,
         height: 36,
         borderRadius: 10,
+        backgroundColor: COLORS.white,
         alignItems: "center",
         justifyContent: "center",
         marginRight: 12,
+        borderWidth: 1,
+        borderColor: COLORS.gray[100],
     },
-    accordionText: { fontSize: 15, fontWeight: "600", color: THEME.textMain },
-    accordionContent: { overflow: "hidden", marginTop: 8, marginBottom: 16 },
-
-    // Modal
-    modalOverlay: {
+    inputField: {
         flex: 1,
-        backgroundColor: "rgba(30, 41, 59, 0.4)",
-        justifyContent: "flex-end",
+        fontSize: 16,
+        color: COLORS.gray[800],
+        fontWeight: "500",
     },
-    sheetContainer: {
-        backgroundColor: "#FFF",
-        borderTopLeftRadius: 32,
-        borderTopRightRadius: 32,
-        paddingBottom: 30,
-        paddingTop: 10,
-        shadowColor: "#000",
-        shadowOpacity: 0.2,
-        shadowRadius: 20,
-        elevation: 20,
-        maxHeight: "70%",
+    errorText: {
+        fontSize: 12,
+        color: COLORS.danger,
+        marginTop: 6,
+        marginLeft: 4,
+        fontWeight: "500",
     },
-    sheetHandle: {
-        width: 40,
-        height: 4,
-        backgroundColor: THEME.border,
-        borderRadius: 2,
-        alignSelf: "center",
-        marginBottom: 15,
-    },
-    sheetTitle: {
-        fontSize: 18,
-        fontWeight: "700",
-        color: THEME.textMain,
-        marginLeft: 24,
-        marginBottom: 10,
-    },
-    sheetOption: {
+    // Priority custom styling
+    priorityGrid: {
         flexDirection: "row",
-        justifyContent: "space-between",
+        gap: 10,
+    },
+    priorityCard: {
+        flex: 1,
+        paddingVertical: 12,
+        borderRadius: 12,
+        backgroundColor: COLORS.white,
+        borderWidth: 1.5,
+        borderColor: COLORS.gray[200],
         alignItems: "center",
-        paddingVertical: 16,
-        paddingHorizontal: 24,
+        justifyContent: "center",
+        gap: 6,
+    },
+    priorityDot: {
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+    },
+    priorityText: {
+        fontSize: 12,
+        fontWeight: "600",
+        color: COLORS.gray[500],
+    },
+    // Dropdown
+    dropdownButton: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        backgroundColor: COLORS.white,
+        borderWidth: 1.5,
+        borderColor: COLORS.gray[200],
+        borderRadius: 14,
+        padding: 12,
+        height: 60,
+    },
+    dropdownLeft: {
+        flexDirection: "row",
+        alignItems: "center",
+        flex: 1,
+    },
+    dropdownText: {
+        fontSize: 16,
+        fontWeight: "600",
+        color: COLORS.gray[800],
+    },
+    dropdownPlaceholder: {
+        fontSize: 15,
+        color: COLORS.gray[400],
+    },
+    // Accordion
+    accordionHeader: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+    },
+    accordionLeft: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 12,
+    },
+    accordionContent: {
+        marginTop: 20,
+        paddingTop: 20,
+        borderTopWidth: 1,
+        borderTopColor: COLORS.gray[100],
+    },
+    predictionsContainer: {
+        backgroundColor: COLORS.white,
+        borderRadius: 12,
+        marginTop: 10,
+        borderWidth: 1,
+        borderColor: COLORS.gray[200],
+        overflow: "hidden",
+    },
+    predictionItem: {
+        flexDirection: 'row',
+        padding: 14,
         borderBottomWidth: 1,
-        borderBottomColor: "#F1F5F9",
+        borderBottomColor: COLORS.gray[50],
+        alignItems: "flex-start",
     },
-    sheetOptionText: { fontSize: 16, fontWeight: "500" },
-
-    // Button
-    footer: {
-        paddingHorizontal: 20,
-        paddingBottom: Platform.OS === "ios" ? 25 : 20,
-        backgroundColor: "transparent",
+    predictionMain: {
+        fontSize: 14,
+        fontWeight: "600",
+        color: COLORS.gray[800],
     },
-    btnContainer: { width: "100%" },
-    btnGradient: {
-        borderRadius: 20,
-        paddingVertical: 18,
-        // Unique colored shadow
-        shadowColor: THEME.gradientEnd,
-        shadowOpacity: 0.4,
-        shadowOffset: { width: 0, height: 10 },
-        shadowRadius: 15,
+    predictionSub: {
+        fontSize: 12,
+        color: COLORS.gray[500],
+        marginTop: 2,
+    },
+    // Footer / Submit
+    footerContainer: {
+        position: "absolute",
+        bottom: 0,
+        left: 0,
+        right: 0,
+        backgroundColor: COLORS.white,
+        paddingHorizontal: 24,
+        paddingTop: 20,
+        paddingBottom: Platform.OS === 'ios' ? 34 : 24,
+        borderTopLeftRadius: 24,
+        borderTopRightRadius: 24,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: -4 },
+        shadowOpacity: 0.05,
+        shadowRadius: 10,
+        elevation: 20,
+    },
+    submitButton: {
+        borderRadius: 18,
+        overflow: "hidden",
+        shadowColor: COLORS.primary,
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.35,
+        shadowRadius: 16,
         elevation: 10,
     },
-    btnContent: {
+    disabledButton: {
+        opacity: 0.7,
+    },
+    gradientButton: {
+        paddingVertical: 18,
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "center",
+        gap: 10,
     },
-    btnText: { color: "#FFF", fontSize: 17, fontWeight: "700" },
+    submitText: {
+        fontSize: 18,
+        fontWeight: "700",
+        color: COLORS.white,
+        letterSpacing: 0.5,
+    },
+    iconCircle: {
+        width: 28,
+        height: 28,
+        borderRadius: 14,
+        backgroundColor: COLORS.white,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    // Modal
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: "rgba(15, 23, 42, 0.6)", // Blur effect background
+        justifyContent: "flex-end",
+    },
+    modalContent: {
+        backgroundColor: COLORS.gray[50],
+        borderTopLeftRadius: 30,
+        borderTopRightRadius: 30,
+        height: "75%",
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: -4 },
+        shadowOpacity: 0.25,
+        shadowRadius: 20,
+        elevation: 25,
+        overflow: "hidden",
+    },
+    modalHeader: {
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
+        padding: 24,
+        backgroundColor: COLORS.white,
+        borderBottomWidth: 1,
+        borderBottomColor: COLORS.gray[200],
+    },
+    modalTitle: {
+        fontSize: 20,
+        fontWeight: "700",
+        color: COLORS.gray[900],
+    },
+    closeBtn: {
+        padding: 4,
+        backgroundColor: COLORS.gray[100],
+        borderRadius: 20,
+    },
+    modalScroll: {
+        flex: 1,
+        padding: 20,
+    },
+    modalGrid: {
+        flexDirection: "row",
+        flexWrap: "wrap",
+        gap: 12,
+        paddingBottom: 40,
+    },
+    sourceCard: {
+        width: "48%",
+        backgroundColor: COLORS.white,
+        borderRadius: 16,
+        padding: 16,
+        borderWidth: 1,
+        borderColor: COLORS.gray[200],
+        gap: 10,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 4,
+        elevation: 2,
+    },
+    sourceCardActive: {
+        backgroundColor: COLORS.primary,
+        borderColor: COLORS.primary,
+    },
+    sourceIconBox: {
+        width: 38,
+        height: 38,
+        borderRadius: 19,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    sourceName: {
+        fontSize: 14,
+        fontWeight: "700",
+        color: COLORS.gray[800],
+    },
+    sourceGroup: {
+        fontSize: 12,
+        color: COLORS.gray[500],
+    },
+    centerBox: {
+        flex: 1,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    loadingText: {
+        marginTop: 12,
+        color: COLORS.gray[500],
+        fontSize: 14,
+    },
+    // Toast
+    toastContainer: {
+        position: "absolute",
+        top: Platform.OS === "ios" ? 50 : 30,
+        alignSelf: 'center',
+        zIndex: 9999,
+        width: '90%',
+    },
+    toastContent: {
+        flexDirection: "row",
+        alignItems: "center",
+        paddingVertical: 14,
+        paddingHorizontal: 20,
+        borderRadius: 16,
+        gap: 12,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.2,
+        shadowRadius: 12,
+        elevation: 8,
+    },
+    toastText: {
+        color: COLORS.white,
+        fontSize: 15,
+        fontWeight: "600",
+        flex: 1,
+    },
+    // Image Upload Styles
+    imageUploadContainer: {
+        alignItems: "center",
+        marginTop: 20,
+    },
+    imagePicker: {
+        width: 100,
+        height: 100,
+        borderRadius: 50,
+        backgroundColor: COLORS.gray[100],
+        borderWidth: 2,
+        borderColor: COLORS.primary,
+        borderStyle: "dashed",
+        justifyContent: "center",
+        alignItems: "center",
+        overflow: "hidden",
+        position: "relative",
+    },
+    uploadedImage: {
+        width: "100%",
+        height: "100%",
+        borderRadius: 50,
+    },
+    imagePlaceholder: {
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    uploadText: {
+        fontSize: 10,
+        color: COLORS.primary,
+        marginTop: 4,
+        fontWeight: "600",
+    },
+    editIconBadge: {
+        position: "absolute",
+        bottom: 0,
+        right: 0,
+        backgroundColor: COLORS.primary,
+        width: 28,
+        height: 28,
+        borderRadius: 14,
+        alignItems: "center",
+        justifyContent: "center",
+        borderWidth: 2,
+        borderColor: COLORS.white,
+    },
 });

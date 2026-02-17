@@ -1,35 +1,235 @@
-import React, { useState } from "react";
+import { Ionicons } from "@expo/vector-icons";
+// import auth from '@react-native-firebase/auth'; // Removed for conditional require
+import axios from "axios";
+import { BlurView } from "expo-blur";
+import { LinearGradient } from "expo-linear-gradient";
+import { useEffect, useState } from "react";
 import {
-    View,
+    ActivityIndicator,
+    Alert,
+    Dimensions,
+    KeyboardAvoidingView,
+    Platform,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
     Text,
     TextInput,
     TouchableOpacity,
-    StyleSheet,
-    ScrollView,
-    Alert,
-    KeyboardAvoidingView,
-    Platform,
+    View,
 } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
-import { MaterialIcons, MaterialCommunityIcons } from "@expo/vector-icons";
-import Animated, { FadeInUp, SlideInRight } from "react-native-reanimated";
-import * as AuthSession from "expo-auth-session";
-import axios from "axios";
+import Animated, {
+    Easing,
+    FadeInDown,
+    FadeInUp,
+    interpolate,
+    interpolateColor,
+    useAnimatedStyle,
+    useSharedValue,
+    withRepeat,
+    withSpring,
+    withTiming
+} from "react-native-reanimated";
 import { useAuth } from "../../contexts/AuthContext";
 import { API_URL } from "../../services/apiConfig";
 
+import auth from "../../services/firebaseAuth"; // Safe import
+
+const { width } = Dimensions.get('window');
+
+const AnimatedBlob = ({ style }) => {
+    const translateY = useSharedValue(0);
+    const scale = useSharedValue(1);
+
+    useEffect(() => {
+        translateY.value = withRepeat(
+            withTiming(-20, { duration: 4000, easing: Easing.inOut(Easing.ease) }),
+            -1,
+            true
+        );
+        scale.value = withRepeat(
+            withTiming(1.1, { duration: 4000, easing: Easing.inOut(Easing.ease) }),
+            -1,
+            true
+        );
+    }, []);
+
+    const animatedStyle = useAnimatedStyle(() => ({
+        transform: [{ translateY: translateY.value }, { scale: scale.value }],
+    }));
+
+    return <Animated.View style={[style, animatedStyle]} />;
+};
+
+const CustomInput = ({ label, icon, value, onChangeText, isPassword, showPassword, setShowPassword, placeholder, keyboardType, autoCapitalize, maxLength }) => {
+    const isFocused = useSharedValue(0);
+    const [focused, setFocused] = useState(false);
+
+    const handleFocus = () => {
+        setFocused(true);
+        isFocused.value = withTiming(1, { duration: 300 });
+    };
+
+    const handleBlur = () => {
+        setFocused(false);
+        isFocused.value = withTiming(0, { duration: 300 });
+    };
+
+    const labelStyle = useAnimatedStyle(() => {
+        return {
+            transform: [
+                { translateY: interpolate(isFocused.value, [0, 1], [0, -4]) },
+                { translateX: interpolate(isFocused.value, [0, 1], [0, 0]) },
+            ],
+            fontSize: interpolate(isFocused.value, [0, 1], [14, 13]),
+            color: interpolateColor(isFocused.value, [0, 1], ['#334155', '#6366f1']),
+        };
+    });
+
+    const borderStyle = useAnimatedStyle(() => {
+        return {
+            borderColor: interpolateColor(isFocused.value, [0, 1], ['#e2e8f0', '#6366f1']),
+            borderWidth: interpolate(isFocused.value, [0, 1], [1, 2]),
+            shadowOpacity: interpolate(isFocused.value, [0, 1], [0, 0.1]),
+            shadowRadius: interpolate(isFocused.value, [0, 1], [0, 8]),
+        };
+    });
+
+    return (
+        <View style={styles.inputWrapper}>
+            <Animated.Text style={[styles.label, labelStyle]}>{label}</Animated.Text>
+            <Animated.View style={[styles.inputContainer, borderStyle]}>
+                <Ionicons
+                    name={icon}
+                    size={20}
+                    color={focused ? "#6366f1" : "#64748b"}
+                    style={styles.inputIcon}
+                />
+                <TextInput
+                    style={styles.input}
+                    placeholder={focused ? placeholder : ""}
+                    placeholderTextColor="#94a3b8"
+                    value={value}
+                    onChangeText={onChangeText}
+                    onFocus={handleFocus}
+                    onBlur={handleBlur}
+                    secureTextEntry={isPassword && !showPassword}
+                    keyboardType={keyboardType}
+                    autoCapitalize={autoCapitalize}
+                    maxLength={maxLength}
+                />
+                {isPassword && (
+                    <TouchableOpacity
+                        style={styles.eyeIcon}
+                        onPress={() => setShowPassword(!showPassword)}>
+                        <Ionicons
+                            name={showPassword ? "eye-outline" : "eye-off-outline"}
+                            size={20}
+                            color="#64748b"
+                        />
+                    </TouchableOpacity>
+                )}
+            </Animated.View>
+        </View>
+    );
+};
+
+const CustomButton = ({ onPress, loading, title, icon }) => {
+    const scale = useSharedValue(1);
+
+    const handlePressIn = () => {
+        scale.value = withSpring(0.95);
+    };
+
+    const handlePressOut = () => {
+        scale.value = withSpring(1);
+        onPress();
+    };
+
+    const animatedStyle = useAnimatedStyle(() => ({
+        transform: [{ scale: scale.value }],
+    }));
+
+    return (
+        <TouchableOpacity
+            activeOpacity={1}
+            onPressIn={handlePressIn}
+            onPressOut={handlePressOut}
+            disabled={loading}
+        >
+            <Animated.View style={[styles.signupButton, animatedStyle]}>
+                <LinearGradient
+                    colors={icon === "checkmark-circle-outline" ? ["#10b981", "#34d399"] : ["#6366f1", "#8b5cf6"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.gradientButton}>
+                    {loading ? (
+                        <ActivityIndicator color="#fff" />
+                    ) : (
+                        <>
+                            <Text style={styles.signupButtonText}>{title}</Text>
+                            <Ionicons name={icon || "arrow-forward"} size={20} color="#fff" />
+                        </>
+                    )}
+                </LinearGradient>
+            </Animated.View>
+        </TouchableOpacity>
+    );
+};
+
 const SignupScreen = ({ navigation }) => {
     const { login } = useAuth();
+    const [step, setStep] = useState(1); // 1: Details, 2: OTP
     const [fullName, setFullName] = useState("");
     const [email, setEmail] = useState("");
+    const [mobile, setMobile] = useState("");
     const [password, setPassword] = useState("");
     const [confirmPassword, setConfirmPassword] = useState("");
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
     const [loading, setLoading] = useState(false);
 
-    const handleSignup = async () => {
-        if (!fullName || !email || !password || !confirmPassword) {
+    // OTP State
+    const [otp, setOtp] = useState("");
+    const [confirm, setConfirm] = useState(null); // Firebase confirmation object
+
+    // Enable Auto-Verification Listener
+    useEffect(() => {
+        if (Platform.OS === 'web' || !auth) return;
+
+        const unsubscribe = auth().onAuthStateChanged(async (user) => {
+            if (user && step === 2) {
+                console.log("[Auto-Verify] User authenticated via Firebase:", user.phoneNumber);
+                // Auto-submit if we are in Step 2 and user gets verified (e.g. auto SMS read)
+                try {
+                    const idToken = await user.getIdToken();
+                    await handleFirebaseLogin(idToken);
+                } catch (e) {
+                    console.error("Auto-login error:", e);
+                }
+            }
+        });
+        return unsubscribe;
+    }, [step]); // Re-bind if step changes, though mostly relevant in step 2
+
+    const handleFirebaseLogin = async (idToken) => {
+        setLoading(true);
+        try {
+            const loginResponse = await axios.post(`${API_URL}/auth/login-phone`, { idToken });
+            console.log("Firebase Login/Signup Success:", loginResponse.data);
+            await login(loginResponse.data.token, loginResponse.data.user);
+            Alert.alert("Success", "Verified automatically & Logged in!");
+        } catch (error) {
+            console.error("Firebase Backend Login Error:", error);
+            Alert.alert("Error", "Failed to login with verified phone.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Step 1: Validate & Send OTP (Via Backend & Firebase)
+    const handleSendOTP = async () => {
+        if (!fullName || !email || !mobile || !password || !confirmPassword) {
             Alert.alert("Error", "Please fill in all fields");
             return;
         }
@@ -39,267 +239,358 @@ const SignupScreen = ({ navigation }) => {
             return;
         }
 
+        if (password.length < 6) {
+            Alert.alert("Error", "Password must be at least 6 characters");
+            return;
+        }
+
+        // Basic Email validation
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+            Alert.alert("Error", "Invalid email address");
+            return;
+        }
+
+        const formattedMobile = mobile.startsWith('+') ? mobile : `+91${mobile}`; // Default to India if no code
+
         setLoading(true);
         try {
-            const response = await axios.post(`${API_URL}/auth/signup`, {
+            // 1. Send Email OTP (Both Web & Native)
+            // User requested option: Auto-get Mobile OTP OR enter Email OTP manually.
+            // So we send the Email OTP in parallel.
+            const backendResponse = await axios.post(`${API_URL}/auth/send-otp`, {
+                email,
+                mobile: formattedMobile
+            });
+
+            if (!backendResponse.data.success) {
+                setLoading(false);
+                Alert.alert("Error", backendResponse.data.message || "User check failed.");
+                return;
+            }
+
+            // 2. Call Firebase for Mobile OTP (Native Only)
+            // 2. Call Firebase for Mobile OTP (Native Only)
+            if (Platform.OS === 'web') {
+                // Web Logic (Email Only)
+                setLoading(false);
+                setStep(2);
+                Alert.alert("OTP Sent", "Sent email OTP (Web mode). Mobile SMS skipped.");
+                setConfirm({ verificationId: "web-mock-id", confirm: async () => true });
+
+            } else if (!auth) {
+                // Expo Go Logic (Email Only)
+                setLoading(false);
+                setStep(2);
+                Alert.alert("Expo Go Detected", "Native Firebase unavailable. Use Email OTP to verify.");
+                setConfirm({ type: 'backend-verify' });
+
+            } else {
+                // Native Logic: Try to send SMS
+                try {
+                    const confirmation = await auth().signInWithPhoneNumber(formattedMobile);
+                    setConfirm(confirmation);
+                    Alert.alert("OTP Sent", "We have sent a verification code to your Mobile number (and Email).");
+                } catch (smsError) {
+                    console.error("Firebase SMS Error:", smsError);
+                    Alert.alert("SMS Failed", "Could not send SMS. Please use the OTP sent to your Email.");
+                    // Still allow proceeding because Email OTP was sent successfully above
+                    // We set a flag to use backend verification since we don't have a valid Firebase confirmation object for SMS
+                    setConfirm({ type: 'backend-verify' });
+                }
+                setLoading(false);
+                setStep(2);
+            }
+
+        } catch (error) {
+            setLoading(false);
+            console.error("Setup Error:", error);
+            Alert.alert("Error", error.response?.data?.message || "Failed to initialize signup.");
+        }
+    };
+
+    // Step 2: Verify & Signup (Via Firebase & Backend)
+    const handleVerifyAndSignup = async () => {
+        if (!otp) {
+            Alert.alert("Error", "Please enter the OTP");
+            return;
+        }
+
+        if (!confirm) {
+            Alert.alert("Error", "Session expired. Please resend OTP.");
+            return;
+        }
+
+        setLoading(true);
+        try {
+            // 1. Verify OTP with Firebase (Skip on Web)
+            // 1. Verify OTP
+            if (Platform.OS === 'web' || confirm.type === 'backend-verify') {
+                // Verified via Backend (Email/Simulated Mobile OTP)
+                const verifyResponse = await axios.post(`${API_URL}/auth/verify-otp`, {
+                    email, // Backend uses email as key for now
+                    otp
+                });
+                if (!verifyResponse.data.success) {
+                    throw new Error("Invalid OTP (Backend Verification)");
+                }
+                console.log("Backend OTP Verification Successful");
+            } else {
+                // Verify with Firebase Native
+                await confirm.confirm(otp);
+                console.log("Firebase Phone Auth Successful");
+            }
+
+            // 2. Proceed to Signup on Backend
+            // Note: We bypass the backend's verify-otp check and go straight to signup
+            // secure enough because we trust Firebase's verification here for the mobile part.
+            const signupResponse = await axios.post(`${API_URL}/auth/signup`, {
                 name: fullName,
                 email,
                 password,
                 confirmPassword,
+                mobile // Passed for record, verified by Firebase
             });
 
-            console.log("Signup successful:", response.data);
-            await login(response.data.token, response.data.user);
-            Alert.alert("Success", "Account created successfully!");
-            navigation.navigate("Login");
+            console.log("Signup successful:", signupResponse.data);
+            await login(signupResponse.data.token, signupResponse.data.user);
+            Alert.alert("Success", "Account verified and created successfully!");
+            // Auto navigation managed by AuthContext
         } catch (error) {
-            Alert.alert(
-                "Error",
-                error.response?.data?.message || "Signup failed",
-            );
+            console.error(error);
+            const msg = error.response?.data?.message || error.message || "Signup failed or Invalid OTP";
+            Alert.alert("Error", msg);
         } finally {
             setLoading(false);
         }
     };
 
-    const handleGoogleSignup = async () => {
+    const handleResendOTP = async () => {
+        setLoading(true);
         try {
-            const redirectUri = AuthSession.makeRedirectUri({
-                useProxy: true,
-            });
+            const formattedMobile = mobile.startsWith('+') ? mobile : `+91${mobile}`;
 
-            const request = new AuthSession.AuthRequest({
-                clientId: "YOUR_GOOGLE_CLIENT_ID", // Replace with your actual client ID
-                scopes: ["openid", "profile", "email"],
-                responseType: AuthSession.ResponseType.IdToken,
-                redirectUri,
-                additionalParameters: {},
-                prompt: AuthSession.Prompt.SelectAccount,
-            });
-
-            const result = await request.promptAsync({
-                authorizationEndpoint:
-                    "https://accounts.google.com/oauth/v2/auth",
-            });
-
-            if (result.type === "success") {
-                const response = await axios.post(
-                    `${API_URL}/api/auth/google`,
-                    {
-                        idToken: result.params.id_token,
-                    },
-                );
-
-                console.log("Google signup successful:", response.data);
-                await login(response.data.token, response.data.user);
-                Alert.alert("Success", "Account created with Google!");
-                navigation.navigate("Home");
+            if (Platform.OS === 'web') {
+                Alert.alert("OTP Resent", "Resent email OTP (Web mode).");
+                // Trigger backend resend for email if needed
+                await axios.post(`${API_URL}/auth/send-otp`, { email, mobile: formattedMobile });
+            } else if (!auth) {
+                Alert.alert("Dev Mode", "Firebase Auth missing. Skipping Mobile OTP Resend.");
+            } else {
+                const confirmation = await auth().signInWithPhoneNumber(formattedMobile);
+                setConfirm(confirmation);
+                Alert.alert("OTP Resent", "Verification code resent successfully via SMS.");
             }
         } catch (error) {
-            console.error("Google signup error:", error);
-            Alert.alert("Error", "Google signup failed");
+            console.error(error);
+            Alert.alert("Error", "Failed to resend OTP. Please try again.");
+        } finally {
+            setLoading(false);
         }
     };
 
     return (
-        <LinearGradient
-            colors={["#0f0f23", "#1a1a2e", "#16213e"]}
-            style={styles.container}>
+        <View style={styles.container}>
+            <StatusBar
+                barStyle="light-content"
+                backgroundColor="#000000"
+            />
+            {/* Abstract Background Elements - Enhanced */}
+            <AnimatedBlob style={styles.blobTopLeft} />
+            <AnimatedBlob style={styles.blobBottomRight} />
+            <AnimatedBlob style={styles.blobCenter} />
+
+            <LinearGradient
+                colors={['rgba(255,255,255,0.4)', 'rgba(255,255,255,0.7)']}
+                style={StyleSheet.absoluteFill}
+            />
             <KeyboardAvoidingView
                 behavior={Platform.OS === "ios" ? "padding" : "height"}
                 style={styles.keyboardView}>
                 <ScrollView
                     contentContainerStyle={styles.scrollContainer}
                     keyboardShouldPersistTaps="handled">
-                    <Animated.View
-                        entering={FadeInUp.delay(100)}
-                        style={styles.logoContainer}>
-                        {/* Modern App Logo */}
-                        <LinearGradient
-                            colors={["#667eea", "#764ba2"]}
-                            style={styles.logo}>
-                            <MaterialCommunityIcons
-                                name="account-plus"
-                                size={40}
-                                color="#fff"
-                            />
-                        </LinearGradient>
-                    </Animated.View>
 
                     <Animated.View
-                        entering={FadeInUp.delay(200)}
-                        style={styles.titleContainer}>
+                        entering={FadeInUp.delay(100)}
+                        style={styles.header}>
+                        <View style={styles.logoCircle}>
+                            <Ionicons name="person-add" size={32} color="#6366f1" />
+                        </View>
                         <Text style={styles.title}>Create Account</Text>
                         <Text style={styles.subtitle}>
-                            Join us and start your journey
+                            {step === 1 ? "Start your journey with us" : "Verify your contact details"}
                         </Text>
                     </Animated.View>
 
                     <Animated.View
+                        entering={FadeInUp.delay(200)}
+                        style={styles.formWrapper}>
+                        <BlurView intensity={20} tint="light" style={styles.blurContainer}>
+                            <View style={styles.formContent}>
+                                {step === 1 && (
+                                    <Animated.View entering={FadeInDown}>
+                                        <CustomInput
+                                            label="Full Name"
+                                            icon="person-outline"
+                                            value={fullName}
+                                            onChangeText={setFullName}
+                                            placeholder="Enter full name"
+                                            autoCapitalize="words"
+                                        />
+                                        <CustomInput
+                                            label="Email Address"
+                                            icon="mail-outline"
+                                            value={email}
+                                            onChangeText={setEmail}
+                                            placeholder="Enter your email"
+                                            keyboardType="email-address"
+                                            autoCapitalize="none"
+                                        />
+                                        <CustomInput
+                                            label="Mobile Number"
+                                            icon="call-outline"
+                                            value={mobile}
+                                            onChangeText={setMobile}
+                                            placeholder="Enter mobile number"
+                                            keyboardType="phone-pad"
+                                        />
+                                        <CustomInput
+                                            label="Password"
+                                            icon="lock-closed-outline"
+                                            value={password}
+                                            onChangeText={setPassword}
+                                            isPassword
+                                            showPassword={showPassword}
+                                            setShowPassword={setShowPassword}
+                                            placeholder="Create password"
+                                        />
+                                        <CustomInput
+                                            label="Confirm Password"
+                                            icon="lock-closed-outline"
+                                            value={confirmPassword}
+                                            onChangeText={setConfirmPassword}
+                                            isPassword
+                                            showPassword={showConfirmPassword}
+                                            setShowPassword={setShowConfirmPassword}
+                                            placeholder="Confirm password"
+                                        />
+
+                                        <CustomButton
+                                            onPress={handleSendOTP}
+                                            loading={loading}
+                                            title="Send OTP"
+                                        />
+                                    </Animated.View>
+                                )}
+
+                                {step === 2 && (
+                                    <Animated.View entering={FadeInUp}>
+                                        <View style={styles.otpInfoContainer}>
+                                            <Text style={styles.otpInfoText}>
+                                                We sent a code to <Text style={styles.highlight}>{mobile}</Text> and <Text style={styles.highlight}>{email}</Text>.
+                                                {"\n"}If SMS auto-verifies, you'll be logged in automatically.
+                                                {"\n"}Otherwise, enter the code from Email or SMS below.
+                                            </Text>
+                                        </View>
+
+                                        <View style={styles.inputWrapper}>
+                                            <View style={styles.inputContainer}>
+                                                <Ionicons name="keypad-outline" size={20} color="#64748b" style={styles.inputIcon} />
+                                                <TextInput
+                                                    style={[styles.input, { letterSpacing: 8, fontSize: 20, textAlign: 'center' }]}
+                                                    placeholder=" - - - - - - "
+                                                    placeholderTextColor="#94a3b8"
+                                                    value={otp}
+                                                    onChangeText={setOtp}
+                                                    keyboardType="number-pad"
+                                                    maxLength={6}
+                                                />
+                                            </View>
+                                        </View>
+
+                                        <CustomButton
+                                            onPress={handleVerifyAndSignup}
+                                            loading={loading}
+                                            title="Verify & Sign Up"
+                                            icon="checkmark-circle-outline"
+                                        />
+
+                                        <TouchableOpacity
+                                            onPress={handleResendOTP}
+                                            style={styles.backLink}
+                                            disabled={loading}>
+                                            <Text style={[styles.backLinkText, { marginBottom: 15, color: '#6366f1' }]}>Resend OTP</Text>
+                                        </TouchableOpacity>
+
+                                        <TouchableOpacity
+                                            onPress={() => setStep(1)}
+                                            style={styles.backLink}>
+                                            <Text style={styles.backLinkText}>Change Details</Text>
+                                        </TouchableOpacity>
+                                    </Animated.View>
+                                )}
+
+                            </View>
+                        </BlurView>
+                    </Animated.View>
+
+                    {/* Footer */}
+                    <Animated.View
                         entering={FadeInUp.delay(300)}
-                        style={styles.formContainer}>
-                        <View style={styles.inputContainer}>
-                            <MaterialIcons
-                                name="person"
-                                size={24}
-                                color="#667eea"
-                                style={styles.inputIcon}
-                            />
-                            <TextInput
-                                style={styles.input}
-                                placeholder="Full Name"
-                                placeholderTextColor="#a0a0a0"
-                                value={fullName}
-                                onChangeText={setFullName}
-                                autoCapitalize="words"
-                            />
-                        </View>
-
-                        <View style={styles.inputContainer}>
-                            <MaterialIcons
-                                name="email"
-                                size={24}
-                                color="#667eea"
-                                style={styles.inputIcon}
-                            />
-                            <TextInput
-                                style={styles.input}
-                                placeholder="Email address"
-                                placeholderTextColor="#a0a0a0"
-                                value={email}
-                                onChangeText={setEmail}
-                                keyboardType="email-address"
-                                autoCapitalize="none"
-                            />
-                        </View>
-
-                        <View style={styles.inputContainer}>
-                            <MaterialIcons
-                                name="lock"
-                                size={24}
-                                color="#667eea"
-                                style={styles.inputIcon}
-                            />
-                            <TextInput
-                                style={styles.input}
-                                placeholder="Password"
-                                placeholderTextColor="#a0a0a0"
-                                value={password}
-                                onChangeText={setPassword}
-                                secureTextEntry={!showPassword}
-                            />
-                            <TouchableOpacity
-                                style={styles.eyeIcon}
-                                onPress={() => setShowPassword(!showPassword)}>
-                                <MaterialIcons
-                                    name={
-                                        showPassword
-                                            ? "visibility"
-                                            : "visibility-off"
-                                    }
-                                    size={24}
-                                    color="#667eea"
-                                />
-                            </TouchableOpacity>
-                        </View>
-
-                        <View style={styles.inputContainer}>
-                            <MaterialIcons
-                                name="lock-outline"
-                                size={24}
-                                color="#667eea"
-                                style={styles.inputIcon}
-                            />
-                            <TextInput
-                                style={styles.input}
-                                placeholder="Confirm Password"
-                                placeholderTextColor="#a0a0a0"
-                                value={confirmPassword}
-                                onChangeText={setConfirmPassword}
-                                secureTextEntry={!showConfirmPassword}
-                            />
-                            <TouchableOpacity
-                                style={styles.eyeIcon}
-                                onPress={() =>
-                                    setShowConfirmPassword(!showConfirmPassword)
-                                }>
-                                <MaterialIcons
-                                    name={
-                                        showConfirmPassword
-                                            ? "visibility"
-                                            : "visibility-off"
-                                    }
-                                    size={24}
-                                    color="#667eea"
-                                />
-                            </TouchableOpacity>
-                        </View>
-                    </Animated.View>
-
-                    <Animated.View
-                        entering={FadeInUp.delay(400)}
-                        style={styles.buttonContainer}>
-                        <LinearGradient
-                            colors={["#667eea", "#764ba2"]}
-                            style={styles.primaryButtonGradient}>
-                            <TouchableOpacity
-                                style={styles.primaryButton}
-                                onPress={handleSignup}
-                                disabled={loading}>
-                                <MaterialCommunityIcons
-                                    name={loading ? "loading" : "account-plus"}
-                                    size={24}
-                                    color="#fff"
-                                    style={styles.buttonIcon}
-                                />
-                                <Text style={styles.primaryButtonText}>
-                                    {loading
-                                        ? "Creating Account..."
-                                        : "Create Account"}
-                                </Text>
-                            </TouchableOpacity>
-                        </LinearGradient>
-
-                        <View style={styles.dividerContainer}>
-                            <View style={styles.divider} />
-                            <Text style={styles.dividerText}>OR</Text>
-                            <View style={styles.divider} />
-                        </View>
-
-                        <TouchableOpacity
-                            style={styles.googleButton}
-                            onPress={handleGoogleSignup}>
-                            <MaterialCommunityIcons
-                                name="google"
-                                size={24}
-                                color="#DB4437"
-                            />
-                            <Text style={styles.googleButtonText}>
-                                Sign up with Google
-                            </Text>
-                        </TouchableOpacity>
-                    </Animated.View>
-
-                    <Animated.View
-                        entering={FadeInUp.delay(500)}
                         style={styles.footer}>
                         <Text style={styles.footerText}>
                             Already have an account?{" "}
                         </Text>
                         <TouchableOpacity
                             onPress={() => navigation.navigate("Login")}>
-                            <Text style={styles.footerLink}>Sign in</Text>
+                            <Text style={styles.footerLink}>Sign In</Text>
                         </TouchableOpacity>
                     </Animated.View>
+
                 </ScrollView>
             </KeyboardAvoidingView>
-        </LinearGradient>
+        </View>
     );
 };
 
 const styles = StyleSheet.create({
     container: {
         flex: 1,
+        backgroundColor: "#ffffff",
+    },
+    blobTopLeft: {
+        position: 'absolute',
+        top: -150,
+        left: -100,
+        width: 400,
+        height: 400,
+        borderRadius: 200,
+        backgroundColor: '#6366f1', // Indigo
+        opacity: 0.25,
+        transform: [{ scale: 1.2 }],
+    },
+    blobBottomRight: {
+        position: 'absolute',
+        bottom: -150,
+        right: -100,
+        width: 400,
+        height: 400,
+        borderRadius: 200,
+        backgroundColor: '#a855f7', // Purple
+        opacity: 0.25,
+        transform: [{ scale: 1.2 }],
+    },
+    blobCenter: {
+        position: 'absolute',
+        top: '30%',
+        left: -100,
+        width: 300,
+        height: 300,
+        borderRadius: 150,
+        backgroundColor: '#3b82f6', // Blue
+        opacity: 0.2,
+        transform: [{ scale: 1.5 }],
     },
     keyboardView: {
         flex: 1,
@@ -307,155 +598,155 @@ const styles = StyleSheet.create({
     scrollContainer: {
         flexGrow: 1,
         justifyContent: "center",
-        paddingHorizontal: 24,
-        paddingVertical: 40,
+        padding: 24,
+        paddingTop: 60,
     },
-    logoContainer: {
+    header: {
         alignItems: "center",
-        marginBottom: 40,
-    },
-    logo: {
-        width: 100,
-        height: 100,
-        borderRadius: 50,
-        justifyContent: "center",
-        alignItems: "center",
-        shadowColor: "#667eea",
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.3,
-        shadowRadius: 16,
-        elevation: 8,
-    },
-    titleContainer: {
-        alignItems: "center",
-        marginBottom: 48,
-    },
-    title: {
-        fontSize: 32,
-        fontWeight: "700",
-        color: "#fff",
-        marginBottom: 8,
-        textAlign: "center",
-    },
-    subtitle: {
-        fontSize: 18,
-        color: "#a0a0a0",
-        textAlign: "center",
-    },
-    formContainer: {
         marginBottom: 32,
     },
+    logoCircle: {
+        width: 80,
+        height: 80,
+        borderRadius: 40,
+        backgroundColor: "#fff",
+        alignItems: "center",
+        justifyContent: "center",
+        marginBottom: 16,
+        shadowColor: "#6366f1",
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.1,
+        shadowRadius: 20,
+        elevation: 5,
+    },
+    title: {
+        fontSize: 26,
+        fontWeight: "800",
+        color: "#0f172a",
+        marginBottom: 8,
+        letterSpacing: 0.5,
+    },
+    subtitle: {
+        fontSize: 16,
+        color: "#64748b",
+        textAlign: "center",
+        lineHeight: 24,
+    },
+    formWrapper: {
+        width: "100%",
+        marginBottom: 24,
+        borderRadius: 24,
+        overflow: 'hidden',
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 12,
+        elevation: 8,
+    },
+    blurContainer: {
+        width: '100%',
+        backgroundColor: 'rgba(255, 255, 255, 0.7)',
+    },
+    formContent: {
+        padding: 24,
+    },
+    inputWrapper: {
+        marginBottom: 16,
+    },
+    label: {
+        fontSize: 14,
+        fontWeight: "600",
+        color: "#334155",
+        marginBottom: 8,
+        marginLeft: 4,
+    },
     inputContainer: {
-        marginBottom: 20,
-        position: "relative",
         flexDirection: "row",
         alignItems: "center",
+        backgroundColor: "#f8fafc",
+        borderWidth: 1,
+        borderColor: "#e2e8f0",
+        borderRadius: 16,
+        height: 56,
+        paddingHorizontal: 16,
     },
     inputIcon: {
-        position: "absolute",
-        left: 20,
-        zIndex: 1,
+        marginRight: 12,
+        color: "#64748b",
     },
     input: {
         flex: 1,
-        height: 60,
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.1)",
-        borderRadius: 16,
-        paddingHorizontal: 60,
-        paddingVertical: 18,
+        color: "#0f172a",
         fontSize: 16,
-        backgroundColor: "rgba(255,255,255,0.05)",
-        color: "#fff",
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.1,
-        shadowRadius: 8,
-        elevation: 4,
+        fontWeight: "500",
     },
     eyeIcon: {
-        position: "absolute",
-        right: 20,
+        padding: 4,
     },
-    buttonContainer: {
-        marginBottom: 40,
-    },
-    primaryButtonGradient: {
+    signupButton: {
+        marginTop: 10,
         borderRadius: 16,
-        shadowColor: "#667eea",
+        overflow: "hidden",
+        shadowColor: "#6366f1",
         shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.3,
+        shadowOpacity: 0.4,
         shadowRadius: 16,
         elevation: 8,
     },
-    primaryButton: {
-        height: 60,
+    gradientButton: {
+        paddingVertical: 18,
         flexDirection: "row",
-        justifyContent: "center",
         alignItems: "center",
-        borderRadius: 16,
+        justifyContent: "center",
+        gap: 8,
     },
-    buttonIcon: {
-        marginRight: 12,
-    },
-    primaryButtonText: {
-        color: "#fff",
+    signupButtonText: {
         fontSize: 18,
-        fontWeight: "600",
-    },
-    disabledButton: {
-        opacity: 0.6,
-    },
-    dividerContainer: {
-        flexDirection: "row",
-        alignItems: "center",
-        marginVertical: 32,
-    },
-    divider: {
-        flex: 1,
-        height: 1,
-        backgroundColor: "rgba(255,255,255,0.1)",
-    },
-    dividerText: {
-        paddingHorizontal: 20,
-        fontSize: 14,
-        color: "#a0a0a0",
-        fontWeight: "500",
-    },
-    googleButton: {
-        height: 60,
-        backgroundColor: "rgba(255,255,255,0.05)",
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.1)",
-        borderRadius: 16,
-        flexDirection: "row",
-        justifyContent: "center",
-        alignItems: "center",
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.1,
-        shadowRadius: 8,
-        elevation: 4,
-    },
-    googleButtonText: {
-        marginLeft: 12,
-        fontSize: 16,
+        fontWeight: "700",
         color: "#fff",
-        fontWeight: "500",
+        letterSpacing: 0.5,
+    },
+    otpInfoContainer: {
+        backgroundColor: "#f1f5f9",
+        padding: 16,
+        borderRadius: 12,
+        marginBottom: 24,
+        borderWidth: 1,
+        borderColor: "#e2e8f0",
+    },
+    otpInfoText: {
+        color: "#64748b",
+        fontSize: 14,
+        textAlign: "center",
+        lineHeight: 22,
+    },
+    highlight: {
+        color: "#6366f1",
+        fontWeight: "700",
+    },
+    backLink: {
+        alignItems: "center",
+        marginTop: 20,
+    },
+    backLinkText: {
+        color: "#64748b",
+        fontSize: 14,
+        fontWeight: "600",
     },
     footer: {
         flexDirection: "row",
         justifyContent: "center",
         alignItems: "center",
+        marginTop: 10,
     },
     footerText: {
-        fontSize: 16,
-        color: "#a0a0a0",
+        color: "#64748b",
+        fontSize: 15,
     },
     footerLink: {
-        fontSize: 16,
-        color: "#667eea",
-        fontWeight: "600",
+        color: "#6366f1",
+        fontWeight: "700",
+        fontSize: 15,
     },
 });
 

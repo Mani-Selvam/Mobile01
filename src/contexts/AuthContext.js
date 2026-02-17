@@ -1,5 +1,5 @@
-import React, { createContext, useState, useEffect, useContext } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { createContext, useContext, useEffect, useState } from "react";
 import { API_URL } from "../services/apiConfig";
 
 const AuthContext = createContext();
@@ -12,12 +12,25 @@ export const AuthProvider = ({ children }) => {
     const [isLoggedIn, setIsLoggedIn] = useState(false);
     const [onboardingCompleted, setOnboardingCompleted] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
+    const [user, setUser] = useState(null);
+    const [userStatus, setUserStatus] = useState("Active");
 
     useEffect(() => {
         const checkStatus = async () => {
             const token = await AsyncStorage.getItem("token");
             if (token) {
                 setIsLoggedIn(true);
+                // Try to load cached user
+                try {
+                    const userData = await AsyncStorage.getItem("user");
+                    if (userData) {
+                        const parsed = JSON.parse(userData);
+                        setUser(parsed);
+                        setUserStatus(parsed.status || "Active");
+                    }
+                } catch (e) {
+                    console.log("Failed to parse cached user", e);
+                }
             }
             const onboarded = await AsyncStorage.getItem("onboardingCompleted");
             if (onboarded === "true") {
@@ -28,39 +41,77 @@ export const AuthProvider = ({ children }) => {
         checkStatus();
     }, []);
 
-    const login = async (token, user) => {
+    // Poll user status periodically while logged in (every 60s)
+    useEffect(() => {
+        let id;
+        if (isLoggedIn && user && user.id) {
+            const poll = async () => {
+                try {
+                    const token = await AsyncStorage.getItem("token");
+                    if (!token) return;
+                    const res = await fetch(`${API_URL}/staff/${user.id}`, {
+                        headers: { Authorization: `Bearer ${token}` },
+                    });
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (data.status && data.status !== userStatus) {
+                            setUserStatus(data.status);
+                            if (data.status === "Inactive") {
+                                // Force logout
+                                await doLogout();
+                            }
+                        }
+                    }
+                } catch (e) {
+                    // ignore polling errors
+                }
+            };
+            id = setInterval(poll, 60000);
+            // run once immediately
+            poll();
+        }
+        return () => {
+            if (id) clearInterval(id);
+        };
+    }, [isLoggedIn, user, userStatus]);
+
+    const login = async (token, userObj) => {
         await AsyncStorage.setItem("token", token);
-        await AsyncStorage.setItem("user", JSON.stringify(user));
+        await AsyncStorage.setItem("user", JSON.stringify(userObj));
+        setUser(userObj);
+        setUserStatus(userObj.status || "Active");
         setIsLoggedIn(true);
+    };
+
+    // internal logout used by polling
+    const doLogout = async () => {
+        await AsyncStorage.removeItem("token");
+        await AsyncStorage.removeItem("user");
+        setUser(null);
+        setUserStatus("Active");
+        setIsLoggedIn(false);
     };
 
     const logout = async () => {
         try {
             const token = await AsyncStorage.getItem("token");
             if (token && token !== "demo-token-123") {
-                // Call logout endpoint on server (skip for demo user)
                 try {
-                    const response = await fetch(`${API_URL}/auth/logout`, {
+                    await fetch(`${API_URL}/auth/logout`, {
                         method: "POST",
                         headers: {
                             Authorization: `Bearer ${token}`,
                             "Content-Type": "application/json",
                         },
                     });
-                    console.log("Logout response:", response.status);
                 } catch (apiError) {
-                    console.log("Logout API error:", apiError);
-                    // Continue with local logout even if API fails
+                    // ignore server logout errors
                 }
             }
         } catch (error) {
             console.log("Logout error:", error);
         } finally {
-            // Clear all local storage
-            await AsyncStorage.removeItem("token");
-            await AsyncStorage.removeItem("user");
-            // Update state AFTER clearing storage
-            setIsLoggedIn(false);
+            await doLogout();
         }
     };
 
@@ -75,6 +126,8 @@ export const AuthProvider = ({ children }) => {
                 isLoggedIn,
                 onboardingCompleted,
                 isLoading,
+                user,
+                userStatus,
                 login,
                 logout,
                 completeOnboarding,

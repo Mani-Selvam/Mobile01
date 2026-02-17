@@ -1,299 +1,521 @@
-import React, { useRef, useState, useCallback } from "react";
+import { Ionicons } from "@expo/vector-icons";
+import { useCallback, useEffect, useState } from "react";
 import {
-    View,
-    Text,
-    StyleSheet,
-    TouchableOpacity,
-    Animated,
-    FlatList,
     Dimensions,
+    FlatList,
+    Image,
     StatusBar,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    useWindowDimensions,
+    View
 } from "react-native";
-import OnboardItem from "../components/OnboardItem";
+import Animated, {
+    Easing,
+    Extrapolation,
+    FadeIn,
+    interpolate,
+    useAnimatedRef,
+    useAnimatedScrollHandler,
+    useAnimatedStyle,
+    useSharedValue,
+    withSequence,
+    withSpring,
+    withTiming
+} from "react-native-reanimated";
 import { useAuth } from "../contexts/AuthContext";
 
-const { width, height } = Dimensions.get("window");
+const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
 const DATA = [
     {
-        title: "Welcome to MyApp",
-        subtitle:
-            "Experience the next generation of digital interaction designed for you.",
-        image: require("../assets/onboard1.jpg"),
+        id: "1",
+        title: "Unify Your Sales Pipeline",
+        subtitle: "Bring all your enquiries into one powerful dashboard. No more messy spreadsheets.",
+        media: require("../assets/introimage/intro1.gif"),
+        type: "image",
+        accentColor: "#6C5DD3", // Matching HomeScreen primary
     },
     {
-        title: "Stay Connected",
-        subtitle:
-            "Seamless communication with your network anytime, anywhere in the world.",
-        image: require("../assets/onboard2.jpg"),
+        id: "2",
+        title: "Never Miss a Follow-up",
+        subtitle: "Schedule calls, track status, and close deals with timely reminders and actions.",
+        media: require("../assets/introimage/intro2.gif"),
+        type: "image",
+        accentColor: "#FF6B9D", // Matching HomeScreen pink/accent
     },
     {
-        title: "Get Started Now",
-        subtitle:
-            "Join millions of users and unlock your full potential today.",
-        image: require("../assets/onboard3.jpg"),
+        id: "3",
+        title: "Visualize Your Growth",
+        subtitle: "Track monthly revenue, conversion rates, and pipeline health at a glance.",
+        media: require("../assets/introimage/intro3.gif"),
+        type: "image",
+        accentColor: "#00D9A3", // Matching HomeScreen success
     },
 ];
 
+const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
+
 export default function OnboardingScreen({ navigation }) {
-    const { isLoggedIn, completeOnboarding } = useAuth();
-    const flatListRef = useRef(null);
-    const scrollX = useRef(new Animated.Value(0)).current;
+    // ... (rest of the component logic remains mostly the same until renderItem)
+    const { completeOnboarding, isLoggedIn } = useAuth();
+    const { width, height } = useWindowDimensions();
+    const flatListRef = useAnimatedRef();
+    const scrollX = useSharedValue(0);
     const [currentIndex, setCurrentIndex] = useState(0);
+    const buttonScale = useSharedValue(1);
+    const buttonOpacity = useSharedValue(1);
 
-    // Handle the "Next" button click - animates to next slide
-    const viewableItemsChanged = useRef(({ viewableItems }) => {
-        setCurrentIndex(viewableItems[0]?.index ?? 0);
-    }).current;
+    const onViewableItemsChanged = useCallback(({ viewableItems }) => {
+        if (viewableItems && viewableItems.length > 0 && viewableItems[0].index !== null) {
+            setCurrentIndex(viewableItems[0].index);
+        }
+    }, []);
 
-    const viewConfig = useRef({ viewAreaCoveragePercentThreshold: 50 }).current;
+    const scrollHandler = useAnimatedScrollHandler({
+        onScroll: (event) => {
+            scrollX.value = event.contentOffset.x;
+        },
+    });
 
-    // Scroll to next index
-    const scrollTo = useCallback(async () => {
+    const handleNext = async () => {
+        // Button press animation
+        buttonScale.value = withSequence(
+            withSpring(0.95, { damping: 15, stiffness: 300 }),
+            withSpring(1.05, { damping: 10, stiffness: 400 }),
+            withSpring(1, { damping: 15, stiffness: 300 })
+        );
+
+        buttonOpacity.value = withSequence(
+            withTiming(0.7, { duration: 100 }),
+            withTiming(1, { duration: 200 })
+        );
+
         if (currentIndex < DATA.length - 1) {
-            flatListRef.current?.scrollToIndex({
-                index: currentIndex + 1,
-                animated: true,
-            });
+            setTimeout(() => {
+                flatListRef.current?.scrollToIndex({
+                    index: currentIndex + 1,
+                    animated: true,
+                });
+            }, 200);
         } else {
             await completeOnboarding();
-            if (isLoggedIn) {
-                navigation.replace("Main");
-            } else {
-                navigation.replace("Login");
-            }
-        }
-    }, [currentIndex, navigation, completeOnboarding, isLoggedIn]);
-
-    const handleSkip = async () => {
-        await completeOnboarding();
-        if (isLoggedIn) {
-            navigation.replace("Main");
-        } else {
-            navigation.replace("Login");
+            navigation.replace(isLoggedIn ? "Main" : "Login");
         }
     };
 
-    // Render Item for FlatList
-    const renderItem = useCallback(
-        ({ item, index }) => {
-            return <OnboardItem item={item} index={index} scrollX={scrollX} />;
-        },
-        [scrollX]
-    );
+    const handleSkip = async () => {
+        await completeOnboarding();
+        navigation.replace(isLoggedIn ? "Main" : "Login");
+    };
 
-    // --- Pagination Dots Logic ---
-    // This makes the dots grow and change color smoothly based on scroll position
+    const renderItem = useCallback(({ item, index }) => {
+        return <OnboardItem item={item} index={index} scrollX={scrollX} width={width} />;
+    }, [scrollX, width]);
+
+    const getItemLayout = useCallback((_, index) => ({
+        length: width,
+        offset: width * index,
+        index,
+    }), [width]);
+
+    const nextButtonAnimatedStyle = useAnimatedStyle(() => {
+        return {
+            transform: [{ scale: buttonScale.value }],
+            opacity: buttonOpacity.value,
+        };
+    });
+
+    // Modern Pagination
+    const Pagination = () => {
+        return (
+            <View style={styles.paginationContainer}>
+                {DATA.map((_, i) => {
+                    const animatedDotStyle = useAnimatedStyle(() => {
+                        const inputRange = [(i - 1) * width, i * width, (i + 1) * width];
+
+                        const widthAnim = interpolate(
+                            scrollX.value,
+                            inputRange,
+                            [6, 32, 6],
+                            Extrapolation.CLAMP
+                        );
+
+                        const opacity = interpolate(
+                            scrollX.value,
+                            inputRange,
+                            [0.4, 1, 0.4],
+                            Extrapolation.CLAMP
+                        );
+
+                        return {
+                            width: widthAnim,
+                            height: 6,
+                            backgroundColor: i === currentIndex ? "#1F2937" : "#D1D5DB",
+                            opacity,
+                            borderRadius: 3,
+                        };
+                    });
+
+                    return (
+                        <Animated.View
+                            key={i}
+                            style={[styles.dot, animatedDotStyle]}
+                        />
+                    );
+                })}
+            </View>
+        );
+    };
+
     return (
         <View style={styles.container}>
-            <StatusBar barStyle="light-content" />
+            <StatusBar barStyle="dark-content" backgroundColor="#fff" translucent />
 
-            {/* --- CORNER DESIGN DECORATIONS --- */}
-            {/* Top Left Blob */}
-            <View style={[styles.blob, styles.topLeft]} />
-            {/* Bottom Right Blob */}
-            <View style={[styles.blob, styles.bottomRight]} />
-
-            {/* Background Gradient Overlay to soften corners */}
-            <View style={styles.bgOverlay} />
-
-            {/* --- CONTENT --- */}
-            <View style={styles.flatListContainer}>
-                <FlatList
-                    data={DATA}
-                    renderItem={renderItem}
-                    keyExtractor={(item) => item.title}
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    pagingEnabled
-                    bounces={false}
-                    onScroll={Animated.event(
-                        [{ nativeEvent: { contentOffset: { x: scrollX } } }],
-                        { useNativeDriver: false } // Native driver false for width interpolation
-                    )}
-                    scrollEventThrottle={32}
-                    onViewableItemsChanged={viewableItemsChanged}
-                    viewabilityConfig={viewConfig}
-                    ref={flatListRef}
-                />
+            {/* Subtle Background Pattern */}
+            <View style={styles.backgroundPattern}>
+                {[...Array(20)].map((_, i) => (
+                    <View
+                        key={i}
+                        style={[
+                            styles.patternDot,
+                            {
+                                left: Math.random() * width,
+                                top: Math.random() * height,
+                                opacity: Math.random() * 0.1 + 0.05,
+                            }
+                        ]}
+                    />
+                ))}
             </View>
 
-            {/* --- BOTTOM CONTROLS --- */}
-            <View style={styles.controlsContainer}>
-                {/* Animated Dots */}
-                <View style={styles.dotsContainer}>
-                    {DATA.map((_, i) => {
-                        const inputRange = [
-                            (i - 1) * width,
-                            i * width,
-                            (i + 1) * width,
-                        ];
+            <AnimatedFlatList
+                ref={flatListRef}
+                data={DATA}
+                renderItem={renderItem}
+                keyExtractor={(item) => item.id}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                pagingEnabled
+                bounces={false}
+                onScroll={scrollHandler}
+                scrollEventThrottle={16}
+                onViewableItemsChanged={onViewableItemsChanged}
+                viewabilityConfig={{ viewAreaCoveragePercentThreshold: 50 }}
+                getItemLayout={getItemLayout}
+                extraData={currentIndex}
+            />
 
-                        const dotWidth = scrollX.interpolate({
-                            inputRange,
-                            outputRange: [8, 24, 8], // Small, Wide (Active), Small
-                            extrapolate: "clamp",
-                        });
+            {/* Pagination */}
+            <View style={styles.paginationWrapper}>
+                <Pagination />
+            </View>
 
-                        const opacity = scrollX.interpolate({
-                            inputRange,
-                            outputRange: [0.3, 1, 0.3],
-                            extrapolate: "clamp",
-                        });
+            {/* Bottom Footer */}
+            <View style={styles.bottomFooter}>
+                <TouchableOpacity onPress={handleSkip} style={styles.skipButton}>
+                    <Text style={styles.skipText}>Skip</Text>
+                </TouchableOpacity>
 
-                        const backgroundColor = scrollX.interpolate({
-                            inputRange,
-                            outputRange: ["#555", "#FFFFFF", "#555"], // Grey -> White -> Grey
-                            extrapolate: "clamp",
-                        });
-
-                        return (
-                            <Animated.View
-                                key={`dot-${i}`}
-                                style={[
-                                    styles.dot,
-                                    {
-                                        width: dotWidth,
-                                        opacity: opacity,
-                                        backgroundColor,
-                                    },
-                                ]}
-                            />
-                        );
-                    })}
-                </View>
-
-                {/* Skip / Next Button */}
-                <View style={styles.buttonContainer}>
-                    {currentIndex !== DATA.length - 1 ? (
-                        <TouchableOpacity
-                            style={styles.skipBtn}
-                            onPress={handleSkip}>
-                            <Text style={styles.skipText}>SKIP</Text>
-                        </TouchableOpacity>
-                    ) : null}
-
-                    <TouchableOpacity
-                        style={styles.nextBtn}
-                        onPress={scrollTo}
-                        activeOpacity={0.8}>
+                <TouchableOpacity
+                    onPress={handleNext}
+                    activeOpacity={0.8}
+                    style={styles.nextButtonWrapper}
+                >
+                    <Animated.View style={[styles.nextButton, nextButtonAnimatedStyle]}>
                         <Text style={styles.nextText}>
-                            {currentIndex === DATA.length - 1
-                                ? "FINISH"
-                                : "NEXT"}
+                            {currentIndex === DATA.length - 1 ? "Get Started" : "Next"}
                         </Text>
-                    </TouchableOpacity>
-                </View>
+                        <Ionicons
+                            name={currentIndex === DATA.length - 1 ? "arrow-forward" : "chevron-forward"}
+                            size={18}
+                            color="#fff"
+                            style={styles.nextIcon}
+                        />
+                    </Animated.View>
+                </TouchableOpacity>
             </View>
         </View>
     );
 }
 
+// Main Onboard Item Component
+const OnboardItem = ({ item, index, scrollX, width }) => {
+    const iconScale = useSharedValue(0.5);
+    const cardOpacity = useSharedValue(0);
+    const translateY = useSharedValue(50);
+
+    useEffect(() => {
+        iconScale.value = withSpring(1, { damping: 15, stiffness: 200 });
+        cardOpacity.value = withTiming(1, { duration: 800, easing: Easing.out(Easing.quad) });
+        translateY.value = withSpring(0, { damping: 20, stiffness: 300 });
+    }, []);
+
+    const animatedStyle = useAnimatedStyle(() => {
+        const inputRange = [(index - 1) * width, index * width, (index + 1) * width];
+
+        const translateX = interpolate(
+            scrollX.value,
+            inputRange,
+            [width * 0.7, 0, -width * 0.7],
+            Extrapolation.CLAMP
+        );
+
+        const scale = interpolate(
+            scrollX.value,
+            inputRange,
+            [0.85, 1, 0.85],
+            Extrapolation.CLAMP
+        );
+
+        return {
+            transform: [
+                { translateX },
+                { scale },
+                { translateY: translateY.value }
+            ],
+            opacity: cardOpacity.value,
+        };
+    });
+
+    const mediaAnimatedStyle = useAnimatedStyle(() => ({
+        transform: [{ scale: iconScale.value }]
+    }));
+
+    return (
+        <Animated.View style={[styles.itemContainer, { width }, animatedStyle]}>
+            {/* Main Content Card */}
+            <View style={styles.contentCard}>
+                {/* Media Container (Image or Video) */}
+                <View style={styles.illustrationContainer}>
+                    <Animated.View style={[styles.mediaWrapper, mediaAnimatedStyle]}>
+                        <Image
+                            source={item.media}
+                            style={styles.media}
+                            resizeMode="contain"
+                        />
+                    </Animated.View>
+
+                    {/* Decorative Elements */}
+                    <View style={[styles.decoration, styles.decoration1, { backgroundColor: item.accentColor + '20' }]} />
+                    <View style={[styles.decoration, styles.decoration2, { backgroundColor: item.accentColor + '15' }]} />
+                    <View style={[styles.decoration, styles.decoration3, { backgroundColor: item.accentColor + '10' }]} />
+                </View>
+
+                {/* Text Content */}
+                <View style={styles.textContainer}>
+                    <Animated.Text
+                        entering={FadeIn.duration(600).delay(200)}
+                        style={styles.title}
+                    >
+                        {item.title}
+                    </Animated.Text>
+                    <Animated.Text
+                        entering={FadeIn.duration(600).delay(400)}
+                        style={styles.subtitle}
+                    >
+                        {item.subtitle}
+                    </Animated.Text>
+                </View>
+
+                {/* Floating Elements */}
+                <View style={styles.floatingElements}>
+                    <Animated.View
+                        entering={FadeIn.duration(800).delay(600)}
+                        style={[styles.floatingDot, { backgroundColor: item.accentColor }]}
+                    />
+                    <Animated.View
+                        entering={FadeIn.duration(800).delay(800)}
+                        style={[styles.floatingDot, styles.dot2, { backgroundColor: item.accentColor + '60' }]}
+                    />
+                </View>
+            </View>
+        </Animated.View>
+    );
+};
+
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: "#0f0f23", // Dark blue-black
-        alignItems: "center",
-        justifyContent: "center",
+        backgroundColor: "#FFFFFF",
+
     },
-    // The Corner Design Blobs
-    blob: {
-        position: "absolute",
-        width: width * 0.8,
-        height: width * 0.8,
-        borderRadius: width * 0.4,
-        opacity: 0.3,
-        zIndex: 0,
-    },
-    topLeft: {
-        top: -height * 0.1,
-        left: -width * 0.1,
-        backgroundColor: "#667eea", // Modern purple-blue
-    },
-    bottomRight: {
-        bottom: -height * 0.1,
-        right: -width * 0.1,
-        backgroundColor: "#764ba2", // Modern purple
-    },
-    bgOverlay: {
+    backgroundPattern: {
         position: "absolute",
         top: 0,
         left: 0,
         right: 0,
         bottom: 0,
-        backgroundColor: "rgba(15, 15, 35, 0.8)", // Dark overlay
-        zIndex: 1,
     },
-    flatListContainer: {
-        flex: 1,
-        width: "100%",
-        zIndex: 2, // Above background blobs
-    },
-    controlsContainer: {
+    patternDot: {
         position: "absolute",
-        bottom: height * 0.05,
-        width: "100%",
-        paddingHorizontal: width * 0.08,
-        zIndex: 10,
-        alignItems: "center",
+        width: 4,
+        height: 4,
+        borderRadius: 2,
+        backgroundColor: "#e5e7ebc3",
     },
-    dotsContainer: {
-        flexDirection: "row",
-        height: 10,
-        marginBottom: height * 0.05,
+    itemContainer: {
+        flex: 1,
+        justifyContent: "center",
+        alignItems: "center",
+        paddingHorizontal: 40,
+    },
+    contentCard: {
+        width: "100%",
+        alignItems: "center",
+        paddingVertical: 50,
+    },
+    illustrationContainer: {
+        position: "relative",
+        marginBottom: 40,
         alignItems: "center",
         justifyContent: "center",
+        height: 320,
+        width: "100%",
     },
-    dot: {
+    mediaWrapper: {
+        width: 300,
+        height: 300,
+        justifyContent: "center",
+        alignItems: "center",
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.15,
+        shadowRadius: 20,
+        elevation: 10,
+        // borderRadius: 20,
+    },
+    media: {
+        width: "100%",
+        height: "100%",
+    },
+    decoration: {
+        position: "absolute",
+        borderRadius: 999,
+    },
+    decoration1: {
+        width: 180,
+        height: 180,
+        top: -20,
+        right: -40,
+    },
+    decoration2: {
+        width: 100,
+        height: 100,
+        bottom: -10,
+        left: -20,
+    },
+    decoration3: {
+        width: 60,
+        height: 60,
+        top: 30,
+        right: -10,
+    },
+    textContainer: {
+        alignItems: "center",
+        marginBottom: 40,
+        paddingHorizontal: 20,
+    },
+    title: {
+        fontSize: 32,
+        fontWeight: "800",
+        color: "#1F2937",
+        textAlign: "center",
+        marginBottom: 16,
+        letterSpacing: -0.5,
+        lineHeight: 40,
+    },
+    subtitle: {
+        fontSize: 16,
+        fontWeight: "500",
+        color: "#6B7280",
+        textAlign: "center",
+        lineHeight: 24,
+        paddingHorizontal: 10,
+    },
+    floatingElements: {
+        position: "absolute",
+        top: 40,
+        right: 30,
+    },
+    floatingDot: {
+        width: 8,
         height: 8,
         borderRadius: 4,
-        marginHorizontal: 6,
-        shadowColor: "#fff",
+        marginBottom: 12,
+        shadowColor: "#000",
         shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.5,
-        shadowRadius: 4,
-        elevation: 3,
+        shadowOpacity: 0.1,
+        shadowRadius: 3,
+        elevation: 2,
     },
-    buttonContainer: {
+    dot2: {
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+        marginLeft: 12,
+    },
+    paginationWrapper: {
+        position: "absolute",
+        top: "75%",
+        left: 0,
+        right: 0,
+        alignItems: "center",
+    },
+    paginationContainer: {
         flexDirection: "row",
-        width: "100%",
+        alignItems: "center",
+        height: 20,
+    },
+    dot: {
+        marginHorizontal: 4,
+    },
+    bottomFooter: {
+        position: "absolute",
+        bottom: 50,
+        left: 0,
+        right: 0,
+        paddingHorizontal: 40,
+        flexDirection: "row",
         justifyContent: "space-between",
         alignItems: "center",
     },
-    skipBtn: {
-        padding: height * 0.015,
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.3)",
-        borderRadius: height * 0.03,
-        minWidth: width * 0.2,
-        alignItems: "center",
+    skipButton: {
+        paddingVertical: 15,
+        paddingHorizontal: 10,
     },
     skipText: {
-        color: "#a0a0a0",
-        fontSize: width * 0.035,
+        color: "#9CA3AF",
         fontWeight: "600",
-        letterSpacing: 1,
+        fontSize: 16,
+        letterSpacing: 0.3,
     },
-    nextBtn: {
-        flex: 1,
-        marginLeft: width * 0.05,
-        height: height * 0.08,
-        borderRadius: height * 0.04,
-        backgroundColor: "transparent",
-        borderWidth: 2,
-        borderColor: "#667eea",
+    nextButtonWrapper: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.15,
+        shadowRadius: 12,
+        elevation: 6,
+    },
+    nextButton: {
+        backgroundColor: "#1F2937",
+        paddingVertical: 16,
+        paddingHorizontal: 32,
+        borderRadius: 28,
+        flexDirection: "row",
         alignItems: "center",
         justifyContent: "center",
-        shadowColor: "#667eea",
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 8,
-        elevation: 5,
+        minWidth: 140,
     },
     nextText: {
-        color: "#667eea",
-        fontSize: width * 0.04,
+        color: "#fff",
+        fontSize: 16,
         fontWeight: "700",
-        letterSpacing: 1,
+        letterSpacing: 0.3,
+        marginRight: 8,
+    },
+    nextIcon: {
+        marginLeft: 2,
     },
 });

@@ -1,12 +1,10 @@
-import React, { useRef, useEffect } from "react";
+import { useEffect, useRef } from "react";
 import {
-    View,
-    Text,
-    Image,
-    StyleSheet,
     Animated,
     Dimensions,
     Easing,
+    StyleSheet,
+    View
 } from "react-native";
 import { useAuth } from "../contexts/AuthContext";
 
@@ -180,15 +178,18 @@ export default function TrendingIntroScreen({ navigation }) {
                 />
 
                 {/* Main Logo */}
-                <Animated.Image
-                    source={require("../assets/logo.png")}
-                    style={[
-                        styles.logoImage,
-                        {
-                            transform: [{ scale: breatheAnim }],
-                        },
-                    ]}
-                />
+                <View style={styles.logoWrapper}>
+                    <Animated.Image
+                        source={require("../assets/logo.png")}
+                        style={[
+                            styles.logoImage,
+                            {
+
+                                transform: [{ scale: breatheAnim }],
+                            },
+                        ]}
+                    />
+                </View>
 
                 {/* Text Section */}
                 <View style={styles.textContainer}>
@@ -211,7 +212,7 @@ export default function TrendingIntroScreen({ navigation }) {
                                 transform: [{ translateY: taglineY }],
                             },
                         ]}>
-                        Technology
+                        Technologies
                     </Animated.Text>
                 </View>
             </View>
@@ -252,19 +253,28 @@ const styles = StyleSheet.create({
         shadowRadius: 20,
         elevation: 10,
     },
-    logoImage: {
+    logoWrapper: {
         width: 150,
         height: 150,
-        borderRadius: 70, // Circular
+        borderRadius: 100, // Circular
         borderWidth: 2,
         borderColor: "#333", // Subtle border
-        backgroundColor: "#111",
+        backgroundColor: "#000000ff",
         // Shadow for neon glow effect
-        shadowColor: "#00F0FF",
+        shadowColor: "#030303ff",
         shadowOffset: { width: 0, height: 0 },
         shadowOpacity: 0.6,
         shadowRadius: 15,
         elevation: 10,
+        padding: 10,
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+    },
+    logoImage: {
+        width: 100,
+        height: 100,
+        padding: 10,
     },
     textContainer: {
         marginTop: 40,

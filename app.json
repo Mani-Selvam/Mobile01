@@ -7,9 +7,6 @@
     "scheme": "myapp",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-    "android": {
-      "package": "com.mani02.myapp"
-    },
     "ios": {
       "supportsTablet": true
     },
@@ -17,9 +14,18 @@
       "output": "single",
       "bundler": "metro"
     },
+    "plugins": [
+      "@react-native-community/datetimepicker",
+      "@react-native-firebase/app",
+      "@react-native-firebase/auth"
+    ],
+    "android": {
+      "package": "com.myapp",
+      "googleServicesFile": "./google-services.json"
+    },
     "extra": {
       "eas": {
-        "projectId": "26dc3e30-5a9a-44ae-a1fb-257654240e45"
+        "projectId": "06124477-e896-46fd-b1f5-40ea1b4278e9"
       }
     }
   }

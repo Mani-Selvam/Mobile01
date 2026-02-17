@@ -1,157 +1,196 @@
-import React, { useState, useEffect } from "react";
+import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect } from "@react-navigation/native";
+import { LinearGradient } from "expo-linear-gradient";
+import { MotiView } from "moti";
+import React, { useCallback, useEffect, useState } from "react";
 import {
+    ActivityIndicator,
+    Alert,
+    Dimensions,
+    FlatList,
+    Image,
+    Linking,
+    Modal,
+    Platform,
+    ScrollView,
+    StatusBar,
     StyleSheet,
     Text,
-    View,
     TextInput,
     TouchableOpacity,
-    FlatList,
-    Modal,
-    ScrollView,
-    Alert,
-    SafeAreaView,
-    KeyboardAvoidingView,
-    Platform,
-    StatusBar,
-    ActivityIndicator,
-    Dimensions,
+    View
 } from "react-native";
-import { Ionicons, MaterialIcons, FontAwesome5 } from "@expo/vector-icons";
+import { SafeAreaView } from "react-native-safe-area-context";
 import * as enquiryService from "../services/enquiryService";
 import * as followupService from "../services/followupService";
-import AddFollowUpScreen from "./AddFollowUpScreen";
 
-const { width, height } = Dimensions.get("window");
+import { useAuth } from "../contexts/AuthContext";
+import { getImageUrl } from "../utils/imageHelper";
 
-// --- THEME: CLEAN MODERN LIGHT ---
-const THEME = {
-    bg: "#F3F4F6", // Light Gray Background
-    card: "#FFFFFF", // White Card
+const { width } = Dimensions.get("window");
 
-    primary: "#3B82F6", // Bright Blue
-    primaryLight: "#EFF6FF", // Light Blue Background
-    primaryText: "#1D4ED8", // Dark Blue Text
+// --- MODERN THEME COLORS ---
+const COLORS = {
+    bgApp: "#F8FAFC",
+    bgCard: "#FFFFFF",
 
-    success: "#10B981", // Emerald
-    successLight: "#D1FAE5",
+    primary: "#0EA5E9", // Cyan 500
+    primaryDark: "#0284C7", // Cyan 600
+    primaryLight: "#F0F9FF",
 
-    warning: "#F59E0B", // Amber
-    warningLight: "#FEF3C7",
+    secondary: "#F43F5E", // Rose 500
+    accent: "#10B981", // Emerald 500
 
-    danger: "#EF4444", // Red
-    dangerLight: "#FEE2E2",
+    textMain: "#1E293B", // Slate 800
+    textMuted: "#475569", // Slate 600
+    textLight: "#94A3B8", // Slate 400
 
-    textMain: "#111827", // Almost Black
-    textSec: "#6B7280", // Gray
-    textLight: "#9CA3AF", // Light Gray
+    border: "#F1F5F9",
 
-    border: "#E5E7EB", // Border Gray
-    shadow: "rgba(0, 0, 0, 0.05)",
+    success: "#10B981",
+    whatsapp: "#25D366",
+    danger: "#EF4444",
+    warning: "#F59E0B",
+    info: "#3B82F6",
+
+    warningBg: "#FFFBEB",
+    warningText: "#92400E",
+    successBg: "#ECFDF5",
+    successText: "#065F46",
+    primaryBg: "#F0F9FF",
+    primaryText: "#0369A1",
+
+    gradients: {
+        primary: ["#0EA5E9", "#2DD4BF"],
+        success: ["#10B981", "#34D399"],
+        danger: ["#F43F5E", "#E11D48"],
+        info: ["#3B82F6", "#6366F1"],
+        header: ["#0F172A", "#1E293B"],
+    }
 };
 
-// --- MAIN APP ---
-export default function App() {
+const toLocalIso = (d) => {
+    const date = d ? new Date(d) : new Date();
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+};
+
+const getFollowUpColor = (date) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const followUpDate = new Date(date);
+    followUpDate.setHours(0, 0, 0, 0);
+
+    if (followUpDate < today) {
+        return COLORS.danger; // Overdue - Red
+    } else if (followUpDate.getTime() === today.getTime()) {
+        return COLORS.warning; // Today - Orange
+    } else {
+        return COLORS.success; // Upcoming - Green
+    }
+};
+
+export default function DashboardScreen({ navigation, route }) {
+    // --- STATES ---
+    const { logout } = useAuth();
+    const [menuVisible, setMenuVisible] = useState(false);
     const [screen, setScreen] = useState("ENQUIRY_LIST");
     const [previousScreen, setPreviousScreen] = useState("ENQUIRY_LIST");
-
-    const [enquiries, setEnquiries] = useState([]);
-    const [followUps, setFollowUps] = useState([]);
-    const [isLoading, setIsLoading] = useState(true);
-
-    const [selectedEnquiry, setSelectedEnquiry] = useState(null);
-    const [followUpForm, setFollowUpForm] = useState({
-        date: "",
-        time: "",
-        type: "WhatsApp",
-        remarks: "",
-        nextAction: "Interested",
-        isNextRequired: false,
-        nextDate: "",
-    });
-
     const [activeTab, setActiveTab] = useState("Today");
-
+    const [followUps, setFollowUps] = useState([]);
+    const [selectedEnquiry, setSelectedEnquiry] = useState(null);
+    const [isLoading, setIsLoading] = useState(true);
     const [showEditModal, setShowEditModal] = useState(false);
     const [editItem, setEditItem] = useState(null);
-    const [editStatus, setEditStatus] = useState("Followup");
     const [editRemarks, setEditRemarks] = useState("");
+    const [editStatus, setEditStatus] = useState("Followup");
     const [editNextDate, setEditNextDate] = useState("");
     const [editAmount, setEditAmount] = useState("");
+    const [isDatePickerVisible, setDatePickerVisibility] = useState(false);
+    const [calendarMonth, setCalendarMonth] = useState(new Date());
+    const [showHistoryModal, setShowHistoryModal] = useState(false);
+    const [showDetailsModal, setShowDetailsModal] = useState(false);
+    const [enquiryHistory, setEnquiryHistory] = useState([]);
+    const [historyLoading, setHistoryLoading] = useState(false);
 
     // --- EFFECTS ---
-    useEffect(() => {
-        fetchEnquiries();
-        fetchFollowUps("Today");
-    }, []);
+    const [page, setPage] = useState(1);
+    const [hasMore, setHasMore] = useState(true);
+    const [isLoadingMore, setIsLoadingMore] = useState(false);
+
+    // --- EFFECTS ---
+    useFocusEffect(
+        useCallback(() => {
+            // When tab or screen/route params changes logic is handled below or by tab change
+        }, [])
+    );
 
     useEffect(() => {
-        fetchFollowUps(activeTab);
+        // When tab changes, reset and fetch fresh
+        fetchFollowUps(activeTab, true);
     }, [activeTab]);
 
-    // --- HELPERS ---
-    const getStatusColor = (status) => {
-        switch (status) {
-            case "New":
-                return {
-                    bg: THEME.warningLight,
-                    text: THEME.warning,
-                    border: THEME.warning,
-                };
-            case "In Progress":
-                return {
-                    bg: THEME.primaryLight,
-                    text: THEME.primaryText,
-                    border: THEME.primary,
-                };
-            case "Converted":
-                return {
-                    bg: THEME.successLight,
-                    text: THEME.success,
-                    border: THEME.success,
-                };
-            case "Closed":
-                return {
-                    bg: THEME.bg,
-                    text: THEME.textSec,
-                    border: THEME.border,
-                };
-            default:
-                return {
-                    bg: THEME.bg,
-                    text: THEME.textSec,
-                    border: THEME.border,
-                };
-        }
-    };
+    // ... (Notification effects remain same)
+
+    // ... (Helpers remain same)
 
     // --- API HANDLERS ---
-    const fetchEnquiries = async () => {
+    const fetchFollowUps = async (tab, refresh = false) => {
+        if (refresh) {
+            setIsLoading(true);
+            setPage(1);
+            setHasMore(true);
+            setFollowUps([]); // Clear list on tab change/refresh to avoid mix
+        } else {
+            if (!hasMore || isLoadingMore) return;
+            setIsLoadingMore(true);
+        }
+
         try {
-            const data = await enquiryService.getAllEnquiries();
-            setEnquiries(data);
-            setIsLoading(false);
+            const currentPage = refresh ? 1 : page;
+            // console.log(`[FollowUpScreen] Fetching ${tab}, page: ${currentPage}, refresh: ${refresh}...`);
+
+            const response = await followupService.getFollowUps(tab, currentPage, 20);
+
+            let newData = [];
+            let totalPages = 1;
+
+            if (Array.isArray(response)) {
+                newData = response;
+                setHasMore(false);
+            } else if (response && response.data) {
+                newData = response.data;
+                totalPages = response.pagination?.pages || 1;
+                setHasMore(currentPage < totalPages);
+            }
+
+            // console.log(`Received ${newData.length} records`);
+
+            if (refresh) {
+                setFollowUps(newData);
+            } else {
+                setFollowUps(prev => [...prev, ...newData]);
+            }
+
+            if (!refresh) {
+                setPage(prev => prev + 1);
+            } else if (newData.length > 0 && currentPage < totalPages) {
+                setPage(2);
+            }
+
         } catch (error) {
             console.error(error);
+        } finally {
             setIsLoading(false);
+            setIsLoadingMore(false);
         }
     };
 
-    const fetchFollowUps = async (tab) => {
-        try {
-            const data = await followupService.getFollowUps(tab);
-            setFollowUps(data);
-        } catch (error) {
-            console.error(error);
-        }
-    };
-
-    const handleStartFollowUp = async (enq) => {
-        try {
-            const data = await enquiryService.getEnquiryById(enq.id);
-            setSelectedEnquiry(data);
-            setScreen("ADD_FOLLOWUP");
-        } catch (error) {
-            Alert.alert("Error", "Could not load details");
+    const handleLoadMore = () => {
+        if (!isLoading && !isLoadingMore && hasMore) {
+            fetchFollowUps(activeTab, false);
         }
     };
 
@@ -185,909 +224,1096 @@ export default function App() {
                     : `Sales: ₹${editAmount}`;
             }
 
-            const newFollowUp = {
-                enqNo: editItem.enqNo,
-                name: editItem.name,
+            const updatedData = {
                 date: editStatus === "Followup" ? editNextDate : editItem.date,
-                time: "",
-                type: "WhatsApp",
                 remarks: remarksValue,
                 nextAction: editStatus,
+                status: editStatus === "Drop" ? "Drop" : (editStatus === "Sales" ? "Completed" : "Scheduled"),
+                ...(editStatus === "Sales" ? { amount: Number(editAmount) } : {})
             };
 
-            await followupService.createFollowUp(newFollowUp);
+            console.log("Saving update for ID:", editItem._id, updatedData);
+            await followupService.updateFollowUp(editItem._id, updatedData);
+
+            // Sync with Enquiry Status
+            try {
+                const enqId = editItem.enqId?._id || editItem.enqId || editItem.enqNo;
+                if (enqId) {
+                    let enqStatus = "In Progress";
+                    let updatePayload = { status: enqStatus };
+
+                    if (editStatus === "Sales") {
+                        enqStatus = "Converted";
+                        const parsedAmount = Number(editAmount.toString().replace(/[^0-9.]/g, '')) || 0;
+                        updatePayload = {
+                            status: enqStatus,
+                            cost: parsedAmount,
+                            conversionDate: new Date()
+                        };
+                    } else if (editStatus === "Drop") {
+                        enqStatus = "Dropped";
+                        updatePayload = { status: enqStatus };
+                    }
+
+                    await enquiryService.updateEnquiry(enqId, updatePayload);
+                }
+            } catch (enqErr) {
+                console.error("Enquiry sync error:", enqErr);
+            }
+
             setShowEditModal(false);
             setEditRemarks("");
             setEditNextDate("");
             setEditAmount("");
             setEditStatus("Followup");
-            fetchFollowUps(activeTab);
-            Alert.alert("Success", "Follow-up updated successfully");
+
+            // Go to Upcoming tab as requested
+            setActiveTab("Upcoming");
+
+            Alert.alert("Success", "Interaction updated successfully");
         } catch (e) {
-            console.error("Create follow-up error:", e);
+            console.error("Update follow-up error:", e);
             Alert.alert("Error", e.response?.data?.message || "Could not save");
         }
     };
 
-    // --- SUB-COMPONENTS ---
+    const handleOpenDetails = async (enq) => {
+        if (!enq) return;
 
-    // 1. Clean Header
-    const TopBar = ({ title, showBack = false, onBack }) => (
-        <View style={lightStyles.headerContainer}>
-            <View style={lightStyles.header}>
-                <View style={lightStyles.headerLeft}>
-                    {showBack && (
-                        <TouchableOpacity
-                            onPress={
-                                onBack || (() => setScreen("ENQUIRY_LIST"))
-                            }
-                            style={lightStyles.backBtn}>
-                            <Ionicons
-                                name="arrow-back"
-                                size={24}
-                                color={THEME.textMain}
-                            />
-                        </TouchableOpacity>
-                    )}
-                    <Text style={lightStyles.headerTitle}>{title}</Text>
-                </View>
-                <View style={lightStyles.headerRight}>
-                    <TouchableOpacity
-                        style={lightStyles.iconBtn}
-                        onPress={() => {
-                            setPreviousScreen(screen);
-                            setScreen("NEXT_FOLLOWUP");
-                        }}>
-                        <Ionicons
-                            name="calendar-outline"
-                            size={22}
-                            color={THEME.textMain}
-                        />
-                    </TouchableOpacity>
-                </View>
-            </View>
-        </View>
-    );
+        // If enqId is already an object (populated), just use it
+        if (enq.enqId && typeof enq.enqId === 'object' && enq.enqId.name) {
+            setSelectedEnquiry(enq.enqId);
+            setShowDetailsModal(true);
+            return;
+        }
 
-    // 2. Enquiry List Screen
-    const EnquiryList = () => (
-        <View style={{ flex: 1, backgroundColor: THEME.bg }}>
-            <TopBar title="Dashboard" />
-
-            {/* Search Bar */}
-            <View style={lightStyles.searchContainer}>
-                <Ionicons name="search" size={20} color={THEME.textLight} />
-                <TextInput
-                    placeholder="Search name, mobile..."
-                    style={lightStyles.searchInput}
-                    placeholderTextColor={THEME.textLight}
-                />
-            </View>
-
-            <FlatList
-                data={enquiries}
-                keyExtractor={(item, index) =>
-                    item?.id ? item.id.toString() : `item-${index}`
-                }
-                contentContainerStyle={lightStyles.listPadding}
-                refreshing={isLoading}
-                onRefresh={fetchEnquiries}
-                ListEmptyComponent={
-                    <View style={lightStyles.emptyContainer}>
-                        <MaterialIcons
-                            name="inbox"
-                            size={50}
-                            color={THEME.border}
-                        />
-                        <Text style={lightStyles.emptyText}>
-                            No enquiries found
-                        </Text>
-                    </View>
-                }
-                renderItem={({ item }) => {
-                    const colors = getStatusColor(item.status);
-                    return (
-                        <View style={lightStyles.card}>
-                            <View style={lightStyles.cardHeader}>
-                                <View style={lightStyles.cardInfo}>
-                                    <Text style={lightStyles.enqNo}>
-                                        {item.enqNo}
-                                    </Text>
-                                    <Text style={lightStyles.cardName}>
-                                        {item.name}
-                                    </Text>
-                                    <View style={lightStyles.metaRow}>
-                                        <Ionicons
-                                            name="cube-outline"
-                                            size={14}
-                                            color={THEME.textLight}
-                                        />
-                                        <Text style={lightStyles.metaText}>
-                                            {item.product}
-                                        </Text>
-                                    </View>
-                                </View>
-                                <View style={lightStyles.cardActions}>
-                                    <TouchableOpacity
-                                        style={lightStyles.btnIcon}
-                                        onPress={() => handleOpenEdit(item)}>
-                                        <Ionicons
-                                            name="create-outline"
-                                            size={20}
-                                            color={THEME.textSec}
-                                        />
-                                    </TouchableOpacity>
-                                </View>
-                            </View>
-                        </View>
-                    );
-                }}
-            />
-
-            <TouchableOpacity
-                style={lightStyles.fab}
-                onPress={() =>
-                    Alert.alert("Module 1", "Navigate to Add Enquiry")
-                }>
-                <Ionicons name="add" size={28} color="#FFF" />
-            </TouchableOpacity>
-        </View>
-    );
-
-    // 3. Next Follow-ups Calendar View
-    const NextFollowUpsList = () => {
-        // Group follow-ups by date
-        const groupedByDate = followUps.reduce((acc, item) => {
-            const date = item.date;
-            if (!acc[date]) {
-                acc[date] = [];
-            }
-            acc[date].push(item);
-            return acc;
-        }, {});
-
-        const sortedDates = Object.keys(groupedByDate).sort();
-
-        return (
-            <View style={{ flex: 1, backgroundColor: THEME.bg }}>
-                <TopBar
-                    title="Next Follow-ups"
-                    showBack
-                    onBack={() => setScreen(previousScreen)}
-                />
-                <FlatList
-                    data={sortedDates}
-                    keyExtractor={(date) => date}
-                    contentContainerStyle={lightStyles.calendarPadding}
-                    ListEmptyComponent={
-                        <View style={lightStyles.emptyContainer}>
-                            <Text style={lightStyles.emptyText}>
-                                No follow-ups scheduled
-                            </Text>
-                        </View>
-                    }
-                    renderItem={({ item: date }) => (
-                        <View style={lightStyles.dateSection}>
-                            <View style={lightStyles.dateHeader}>
-                                <Ionicons
-                                    name="calendar"
-                                    size={18}
-                                    color={THEME.primary}
-                                />
-                                <Text style={lightStyles.dateTitle}>
-                                    {date}
-                                </Text>
-                                <Text style={lightStyles.dateCount}>
-                                    {groupedByDate[date].length} follow-up(s)
-                                </Text>
-                            </View>
-                            {groupedByDate[date].map((item, idx) => (
-                                <View
-                                    key={idx}
-                                    style={lightStyles.followupItem}>
-                                    <View style={lightStyles.followupLeft}>
-                                        <Text style={lightStyles.followupName}>
-                                            {item.name}
-                                        </Text>
-                                        <Text
-                                            style={lightStyles.followupRemarks}>
-                                            {item.remarks}
-                                        </Text>
-                                    </View>
-                                    <TouchableOpacity
-                                        style={lightStyles.followupBtn}
-                                        onPress={() => handleOpenEdit(item)}>
-                                        <Ionicons
-                                            name="create-outline"
-                                            size={18}
-                                            color={THEME.primary}
-                                        />
-                                    </TouchableOpacity>
-                                </View>
-                            ))}
-                        </View>
-                    )}
-                />
-            </View>
-        );
+        setIsLoading(true);
+        try {
+            // Priority: enqId string > enqNo > _id
+            const enqIdentifier = (typeof enq.enqId === 'string' ? enq.enqId : null) || enq.enqNo || enq._id;
+            console.log("[FollowUpScreen] Fetching full details for:", enqIdentifier);
+            const data = await enquiryService.getEnquiryById(enqIdentifier);
+            setSelectedEnquiry(data);
+            setShowDetailsModal(true);
+        } catch (error) {
+            console.error("Error fetching details:", error);
+            Alert.alert("Error", "Could not load enquiry details");
+        } finally {
+            setIsLoading(false);
+        }
     };
 
-    // 4. My Follow-ups Screen (Timeline)
-    const MyFollowUpsList = () => (
-        <View style={{ flex: 1, backgroundColor: THEME.bg }}>
-            <TopBar title="My Follow-ups" showBack />
+    const handleOpenHistory = async (enq) => {
+        if (!enq) return;
 
-            {/* Tabs */}
-            <View style={lightStyles.tabsContainer}>
-                {["Today", "Upcoming", "Missed", "Completed"].map((tab) => (
-                    <TouchableOpacity
-                        key={tab}
-                        style={[
-                            lightStyles.tab,
-                            activeTab === tab && lightStyles.tabActive,
-                        ]}
-                        onPress={() => setActiveTab(tab)}>
-                        <Text
-                            style={[
-                                lightStyles.tabText,
-                                activeTab === tab && lightStyles.tabTextActive,
-                            ]}>
-                            {tab}
-                        </Text>
-                    </TouchableOpacity>
-                ))}
+        setHistoryLoading(true);
+        setShowHistoryModal(true);
+        try {
+            const enqIdentifier = enq.enqNo || enq._id;
+            console.log("Fetching history for:", enqIdentifier);
+            // Fetch actual follow-up history from server
+            const historyData =
+                await followupService.getFollowUpHistory(enqIdentifier);
+            console.log("History data received:", historyData);
+            setEnquiryHistory(Array.isArray(historyData) ? historyData : []);
+        } catch (error) {
+            console.error("Error fetching history:", error);
+            // Show empty state instead of error alert
+            setEnquiryHistory([]);
+        } finally {
+            setHistoryLoading(false);
+        }
+    };
+
+    const showDatePicker = () => {
+        setCalendarMonth(new Date());
+        setDatePickerVisibility(true);
+    };
+
+    const hideDatePicker = () => {
+        setDatePickerVisibility(false);
+    };
+
+    const handleConfirmDate = (date) => {
+        // Format date in local timezone (not UTC)
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, "0");
+        const day = String(date.getDate()).padStart(2, "0");
+        const formattedDate = `${year}-${month}-${day}`;
+
+        setEditNextDate(formattedDate);
+        // Close calendar after a short delay to ensure state updates
+        setTimeout(() => {
+            setDatePickerVisibility(false);
+        }, 100);
+    };
+
+    const getDaysInMonth = (date) => {
+        return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+    };
+
+    const getFirstDayOfMonth = (date) => {
+        const dayOfWeek = new Date(
+            date.getFullYear(),
+            date.getMonth(),
+            1,
+        ).getDay();
+        // Convert JS day (0=Sunday) to calendar day where Monday=0, Sunday=6
+        return dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    };
+
+    const renderCalendarDays = () => {
+        const daysInMonth = getDaysInMonth(calendarMonth);
+        const firstDay = getFirstDayOfMonth(calendarMonth);
+        const days = [];
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        // Empty cells for days before month starts
+        for (let i = 0; i < firstDay; i++) {
+            days.push(null);
+        }
+
+        // Days of the month
+        for (let day = 1; day <= daysInMonth; day++) {
+            days.push(day);
+        }
+
+        return days;
+    };
+
+    // --- SIDE MENU ---
+    const SideMenu = () => (
+        <Modal
+            animationType="fade"
+            transparent={true}
+            visible={menuVisible}
+            onRequestClose={() => setMenuVisible(false)}>
+            <TouchableOpacity
+                style={menuStyles.menuOverlay}
+                activeOpacity={1}
+                onPressOut={() => setMenuVisible(false)}>
+                <View style={menuStyles.menuContent}>
+                    <LinearGradient
+                        colors={COLORS.gradients.primary}
+                        style={menuStyles.menuHeader}
+                    >
+                        <View style={menuStyles.profileCircle}>
+                            <Ionicons name="person" size={40} color="#fff" />
+                        </View>
+                        <Text style={menuStyles.profileName}>Admin User</Text>
+                        <Text style={menuStyles.profileRole}>Sales Manager</Text>
+                    </LinearGradient>
+
+                    <ScrollView style={menuStyles.menuList}>
+                        <MenuItem icon="grid-outline" label="Dashboard" onPress={() => { setMenuVisible(false); navigation.navigate("Home"); }} />
+                        <MenuItem icon="people-outline" label="Enquiries" onPress={() => { setMenuVisible(false); navigation.navigate("Enquiry"); }} />
+                        <MenuItem icon="call-outline" label="Follow-ups" onPress={() => setMenuVisible(false)} />
+                        <MenuItem
+                            icon="link-outline"
+                            label="Lead Sources"
+                            onPress={() => {
+                                setMenuVisible(false);
+                                navigation.navigate("LeadSourceScreen");
+                            }}
+                        />
+                        <MenuItem
+                            icon="people-circle-outline"
+                            label="Staff Management"
+                            onPress={() => {
+                                setMenuVisible(false);
+                                navigation.navigate("StaffScreen");
+                            }}
+                        />
+                        <MenuItem icon="bar-chart-outline" label="Reports" onPress={() => { setMenuVisible(false); navigation.navigate("Report"); }} />
+                        <MenuItem icon="settings-outline" label="Settings" />
+                        <MenuItem
+                            icon="log-out-outline"
+                            label="Logout"
+                            color={COLORS.danger}
+                            onPress={handleLogout}
+                        />
+
+                        {/* Logo Section at Bottom */}
+                        <View style={menuStyles.logoSection}>
+                            <View style={menuStyles.logoContainer}>
+                                {true ? (
+                                    <Image
+                                        source={require("../assets/logo.png")}
+                                        style={menuStyles.logoImage}
+                                        resizeMode="contain"
+                                    />
+                                ) : (
+                                    <View style={menuStyles.logoIconCircle}>
+                                        <Ionicons name="business" size={28} color="#fff" />
+                                    </View>
+                                )}
+                                <Text style={menuStyles.logoText}>Neophore Technologies</Text>
+                                <Text style={menuStyles.logoSubtext}>CRM System</Text>
+                            </View>
+                            <Text style={menuStyles.versionText}>v1.0.0</Text>
+                        </View>
+                    </ScrollView>
+                </View>
+            </TouchableOpacity>
+        </Modal>
+    );
+
+    const handleLogout = async () => {
+        Alert.alert("Logout", "Are you sure you want to logout?", [
+            { text: "Cancel", style: "cancel" },
+            {
+                text: "Logout",
+                onPress: async () => {
+                    setMenuVisible(false);
+                    await logout();
+                },
+                style: "destructive",
+            },
+        ]);
+    };
+
+    const MenuItem = ({ icon, label, color = "#334155", onPress }) => (
+        <TouchableOpacity style={menuStyles.menuItem} onPress={onPress}>
+            <Ionicons name={icon} size={24} color={color} />
+            <Text style={[menuStyles.menuItemText, { color }]}>{label}</Text>
+        </TouchableOpacity>
+    );
+
+    // --- SUB-COMPONENTS ---
+
+    const TopBar = ({ title, showBack = false, onBack, showMenu = false, onMenuPress }) => (
+        <LinearGradient
+            colors={COLORS.gradients.header}
+            style={styles.headerGradient}
+        >
+            <View style={styles.headerTop}>
+                <View style={styles.headerLeft}>
+                    {showMenu ? (
+                        <TouchableOpacity onPress={onMenuPress} style={styles.menuIconContainer}>
+                            <Ionicons name="grid-outline" size={24} color="#FFF" />
+                        </TouchableOpacity>
+                    ) : showBack && (
+                        <TouchableOpacity
+                            onPress={onBack || (() => setScreen("ENQUIRY_LIST"))}
+                            style={styles.menuIconContainer}>
+                            <Ionicons name="arrow-back" size={24} color="#FFF" />
+                        </TouchableOpacity>
+                    )}
+                    <View>
+                        <Text style={styles.userNameHeader}>{title}</Text>
+                    </View>
+                </View>
+                {showMenu && (
+                    <View style={{ flexDirection: 'row', gap: 10 }}>
+                        <TouchableOpacity style={styles.notifContainer}>
+                            <Ionicons name="notifications-outline" size={24} color="#FFF" />
+                            <View style={styles.notifBadge} />
+                        </TouchableOpacity>
+                    </View>
+                )}
             </View>
 
-            <FlatList
-                data={followUps}
-                keyExtractor={(item, index) =>
-                    item?._id ? item._id.toString() : `item-${index}`
-                }
-                contentContainerStyle={lightStyles.timelinePadding}
-                ListEmptyComponent={
-                    <View style={lightStyles.emptyContainer}>
-                        <Text style={lightStyles.emptyText}>
-                            No {activeTab.toLowerCase()} follow-ups
-                        </Text>
-                    </View>
-                }
-                renderItem={({ item, index }) => {
-                    const colors = getStatusColor(
-                        item.nextAction === "Converted" ? "Converted" : "New",
-                    );
-                    return (
-                        <View style={lightStyles.timelineItem}>
-                            <View style={lightStyles.timelineTrack}>
-                                <View
-                                    style={[
-                                        lightStyles.timelineDot,
-                                        {
-                                            backgroundColor: colors.border,
-                                            borderColor: THEME.card,
-                                        },
-                                    ]}
+
+            {showMenu && (
+                <View style={styles.searchContainer}>
+                    <Ionicons name="search-outline" size={20} color={COLORS.textLight} style={{ marginLeft: 15 }} />
+                    <TextInput
+                        placeholder="Search follow-ups..."
+                        style={styles.searchInput}
+                        placeholderTextColor={COLORS.textLight}
+                    />
+                </View>
+            )}
+        </LinearGradient>
+    );
+
+
+    const TabBar = () => (
+        <View style={styles.tabBarContainer}>
+            {["Today", "Upcoming", "Missed", "Dropped", "All"].map((tab) => (
+                <TouchableOpacity
+                    key={tab}
+                    onPress={() => setActiveTab(tab)}
+                    style={[
+                        styles.tabItem,
+                        activeTab === tab ? styles.activeTabItem : null
+                    ]}
+                >
+                    <Text style={[
+                        styles.tabText,
+                        activeTab === tab && styles.activeTabText
+                    ]}>
+                        {tab}
+                    </Text>
+                    {activeTab === tab && (
+                        <MotiView
+                            style={styles.activeIndicator}
+                            from={{ opacity: 0, scale: 0 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                        />
+                    )}
+                </TouchableOpacity>
+            ))}
+        </View>
+    );
+
+    const FollowUpCard = React.memo(({ item, index, activeTab, handleOpenDetails, handleOpenHistory, handleOpenEdit }) => {
+        if (!item) return null;
+
+        const initials = item.name ? item.name.substring(0, 2).toUpperCase() : "NA";
+        const isDrop = item.nextAction === "Drop" || item.status === "Drop";
+        const followUpColor = isDrop ? COLORS.textLight : getFollowUpColor(item.date);
+
+        return (
+            <MotiView
+                from={{ opacity: 0, translateY: 10 }}
+                animate={{ opacity: 1, translateY: 0 }}
+                transition={{
+                    type: "timing",
+                    duration: 300,
+                    delay: index * 50, // Reduced delay
+                }}
+                style={styles.cardWrapper}
+            >
+                <TouchableOpacity
+                    activeOpacity={1}
+                    onPress={() => handleOpenDetails(item)}
+                    style={[
+                        styles.cardContainer,
+                        { borderLeftColor: followUpColor, borderLeftWidth: 5 },
+                        isDrop ? { opacity: 0.8 } : null
+                    ]}
+                >
+                    <View style={styles.cardHeader}>
+                        <View style={[styles.avatarContainer, ((item.image || (item.enqId && item.enqId.image)) ? { backgroundColor: "transparent", overflow: "hidden" } : null)]}>
+                            {(item.image || (item.enqId && item.enqId.image)) ? (
+                                <Image
+                                    source={{ uri: getImageUrl(item.image || item.enqId?.image) }}
+                                    style={{ width: "100%", height: "100%" }}
+                                    resizeMode="cover"
                                 />
-                                {index !== followUps.length - 1 && (
-                                    <View style={lightStyles.timelineLine} />
-                                )}
-                            </View>
-                            <View style={lightStyles.timelineCard}>
-                                <View style={lightStyles.timelineHeader}>
-                                    <Text style={lightStyles.timelineDate}>
-                                        {item.date} • {item.time}
+                            ) : (
+                                <LinearGradient colors={isDrop ? [COLORS.textLight, "#CBD5E1"] : COLORS.gradients.primary} style={styles.avatarGradient}>
+                                    <Ionicons name={isDrop ? "close-circle-outline" : "person-outline"} size={20} color="#FFF" style={{ marginBottom: -2 }} />
+                                </LinearGradient>
+                            )}
+                        </View>
+
+                        <View style={styles.cardInfo}>
+                            <View style={styles.nameRow}>
+                                <Text style={[styles.cardName, isDrop && { color: COLORS.textMuted }]} numberOfLines={1}>{item.name}</Text>
+                                <View style={[styles.statusTag, { backgroundColor: followUpColor + "15" }]}>
+                                    <Text style={[styles.statusTagText, { color: followUpColor }]}>
+                                        {isDrop ? "DROPPED" : (activeTab === "Missed" ? "OVERDUE" : (activeTab === "All" ? (item.nextAction || "FOLLOWUP").toUpperCase() : activeTab.toUpperCase()))}
                                     </Text>
-                                    <View
-                                        style={[
-                                            lightStyles.pill,
-                                            { backgroundColor: colors.bg },
-                                        ]}>
-                                        <Text
-                                            style={[
-                                                lightStyles.pillText,
-                                                { color: colors.text },
-                                            ]}>
-                                            {item.type}
-                                        </Text>
-                                    </View>
                                 </View>
-                                <Text style={lightStyles.timelineName}>
-                                    {item.name}
-                                </Text>
-                                <Text style={lightStyles.timelineRemarks}>
-                                    {item.remarks}
-                                </Text>
-                                <TouchableOpacity
-                                    style={lightStyles.editLink}
-                                    onPress={() => handleOpenEdit(item)}>
-                                    <Text style={lightStyles.editLinkText}>
-                                        Update Status
-                                    </Text>
-                                </TouchableOpacity>
+                            </View>
+                            <View style={styles.subInfoRow}>
+                                <Ionicons name="call-outline" size={12} color={COLORS.textLight} />
+                                <Text style={styles.cardSubtext}>{item.mobile}</Text>
+                                <View style={styles.dotSeparator} />
+                                <Text style={styles.cardSubtext}>{item.enqNo}</Text>
                             </View>
                         </View>
-                    );
-                }}
+                    </View>
+
+                    <View style={styles.productSection}>
+                        <View style={styles.productTag}>
+                            <Ionicons name="chatbubble-outline" size={14} color={COLORS.primary} />
+                            <Text style={styles.productText} numberOfLines={1}>{item.remarks || "No remarks"}</Text>
+                        </View>
+                        <View style={[styles.dateBadge, { backgroundColor: followUpColor + "15" }]}>
+                            <Ionicons name="calendar-outline" size={12} color={followUpColor} />
+                            <Text style={[styles.dateText, { color: followUpColor }]}>{item.date}</Text>
+                        </View>
+                    </View>
+
+                    <View style={styles.actionBar}>
+                        <View style={styles.actionLeft}>
+                            <TouchableOpacity
+                                style={[styles.actionBtn, { backgroundColor: COLORS.info + "15" }]}
+                                onPress={() => handleOpenDetails(item)}
+                            >
+                                <Ionicons name="eye-outline" size={18} color={COLORS.info} />
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.actionBtn, { backgroundColor: COLORS.accent + "15" }]}
+                                onPress={() => handleOpenHistory(item)}
+                            >
+                                <Ionicons name="time-outline" size={18} color={COLORS.accent} />
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.actionBtn, { backgroundColor: COLORS.success + "15" }]}
+                                onPress={() => Linking.openURL(`tel:${item.mobile}`)}
+                            >
+                                <Ionicons name="call-outline" size={18} color={COLORS.success} />
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.actionBtn, { backgroundColor: COLORS.whatsapp + "15" }]}
+                                onPress={() => Linking.openURL(`whatsapp://send?phone=${item.mobile.replace(/\D/g, "")}`)}
+                            >
+                                <Ionicons name="logo-whatsapp" size={18} color={COLORS.whatsapp} />
+                            </TouchableOpacity>
+                        </View>
+                        <View style={styles.actionRight}>
+                            <TouchableOpacity
+                                style={[styles.actionBtn, { backgroundColor: COLORS.primary + "15" }]}
+                                onPress={() => handleOpenEdit(item)}
+                            >
+                                <Ionicons name={isDrop ? "refresh-outline" : "create-outline"} size={18} color={COLORS.primary} />
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </TouchableOpacity>
+            </MotiView>
+        );
+    });
+
+    const FollowUpList = () => (
+        <View style={{ flex: 1, backgroundColor: COLORS.bgApp }}>
+            <TopBar title="Follow-up Center" showMenu onMenuPress={() => setMenuVisible(true)} />
+            <TabBar />
+
+            <FlatList
+                data={followUps.filter(item => {
+                    if (!item) return false;
+                    const isDrop = item.nextAction === "Drop" || item.status === "Drop" || item.status === "Dropped";
+                    if (activeTab === "Dropped") return isDrop;
+                    if (activeTab === "All") return true;
+                    return !isDrop;
+                })}
+                keyExtractor={(item, index) =>
+                    item?.id ? item.id.toString() : item?._id?.toString() || `item-${index}`
+                }
+                contentContainerStyle={styles.listContent}
+                refreshing={isLoading}
+                onRefresh={() => fetchFollowUps(activeTab, true)}
+                onEndReached={handleLoadMore}
+                onEndReachedThreshold={0.5}
+                initialNumToRender={10}
+                maxToRenderPerBatch={10}
+                windowSize={10}
+                removeClippedSubviews={true}
+                ListFooterComponent={
+                    isLoadingMore ? (
+                        <View style={{ paddingVertical: 20 }}>
+                            <ActivityIndicator size="small" color={COLORS.primary} />
+                        </View>
+                    ) : null
+                }
+                ListEmptyComponent={
+                    !isLoading ? (
+                        <View style={styles.emptyContainer}>
+                            <View style={styles.emptyIconBg}>
+                                <Ionicons name="calendar-outline" size={40} color={COLORS.textLight} />
+                            </View>
+                            <Text style={styles.emptyText}>No follow-ups for {activeTab}</Text>
+                        </View>
+                    ) : null
+                }
+                renderItem={({ item, index }) => (
+                    <FollowUpCard
+                        item={item}
+                        index={index}
+                        activeTab={activeTab}
+                        handleOpenDetails={handleOpenDetails}
+                        handleOpenHistory={handleOpenHistory}
+                        handleOpenEdit={handleOpenEdit}
+                    />
+                )}
             />
         </View>
     );
 
+
+    // Removed MyFollowUpsList component
+
+
     return (
-        <SafeAreaView style={lightStyles.safeArea}>
-            <StatusBar barStyle="dark-content" backgroundColor={THEME.card} />
+        <SafeAreaView style={styles.safeArea}>
+            <StatusBar barStyle="light-content" backgroundColor={COLORS.gradients.header[0]} />
+            <SideMenu />
 
-            {screen === "ENQUIRY_LIST" && <EnquiryList />}
-            {screen === "ADD_FOLLOWUP" && (
-                <AddFollowUpScreen
-                    selectedEnquiry={selectedEnquiry}
-                    onBack={() => setScreen("ENQUIRY_LIST")}
-                    onSuccess={() => {
-                        setScreen("MY_FOLLOWUPS");
-                        fetchFollowUps(activeTab);
-                    }}
-                />
-            )}
-            {screen === "MY_FOLLOWUPS" && <MyFollowUpsList />}
-            {screen === "NEXT_FOLLOWUP" && <NextFollowUpsList />}
+            {screen === "ENQUIRY_LIST" && <FollowUpList />}
 
-            {/* Edit Follow-up Modal */}
-            <Modal visible={showEditModal} transparent animationType="fade">
-                <View style={lightStyles.modalOverlay}>
-                    <View style={lightStyles.centerModal}>
-                        <View style={lightStyles.modalHeader}>
-                            <Text style={lightStyles.sheetTitle}>
-                                Update Status
-                            </Text>
-                            <TouchableOpacity
-                                onPress={() => setShowEditModal(false)}>
-                                <Ionicons
-                                    name="close"
-                                    size={24}
-                                    color={THEME.textMain}
-                                />
+            {/* Details Modal */}
+            <Modal visible={showDetailsModal} transparent animationType="fade">
+                <View style={styles.popupOverlay}>
+                    <View style={styles.detailsPopup}>
+                        <View style={styles.handleBar} />
+                        <View style={styles.sheetHeader}>
+                            <Text style={styles.sheetTitle}>Enquiry Details</Text>
+                            <TouchableOpacity onPress={() => setShowDetailsModal(false)} style={styles.closeCircle}>
+                                <Ionicons name="close" size={20} color={COLORS.textMain} />
                             </TouchableOpacity>
                         </View>
 
-                        {editItem && (
-                            <ScrollView>
-                                <View style={lightStyles.infoBlock}>
-                                    <Text style={lightStyles.infoLabel}>
-                                        Date
-                                    </Text>
-                                    <Text style={lightStyles.infoValue}>
-                                        {editItem.date}
-                                    </Text>
-                                </View>
-                                <View style={lightStyles.inputGroup}>
-                                    <Text style={lightStyles.inputLabel}>
-                                        Remarks
-                                    </Text>
-                                    <TextInput
-                                        value={editRemarks}
-                                        onChangeText={setEditRemarks}
-                                        placeholder="Add any notes or remarks..."
-                                        style={[
-                                            lightStyles.modalInput,
-                                            {
-                                                height: 100,
-                                                textAlignVertical: "top",
-                                            },
-                                        ]}
-                                        multiline
-                                    />
-                                </View>
-
-                                <Text style={lightStyles.sectionLabel}>
-                                    Select Action
-                                </Text>
-                                <View style={lightStyles.chipGroup}>
-                                    {["Followup", "Sales", "Drop"].map(
-                                        (status) => (
-                                            <TouchableOpacity
-                                                key={status}
-                                                onPress={() =>
-                                                    setEditStatus(status)
-                                                }
-                                                style={[
-                                                    lightStyles.optionCard,
-                                                    editStatus === status &&
-                                                        lightStyles.optionCardActive,
-                                                ]}>
-                                                <View
-                                                    style={[
-                                                        lightStyles.radioCircle,
-                                                        editStatus === status &&
-                                                            lightStyles.radioCircleActive,
-                                                    ]}
-                                                />
-                                                <Text
-                                                    style={[
-                                                        lightStyles.optionText,
-                                                        editStatus === status &&
-                                                            lightStyles.optionTextActive,
-                                                    ]}>
-                                                    {status}
-                                                </Text>
-                                            </TouchableOpacity>
-                                        ),
+                        {selectedEnquiry && (
+                            <ScrollView showsVerticalScrollIndicator={false} style={{ paddingHorizontal: 24 }}>
+                                <View style={[styles.contextCard, selectedEnquiry.status === "Drop" && { opacity: 0.6 }]}>
+                                    <View style={[styles.contextAvatar, selectedEnquiry.image && { backgroundColor: "transparent", overflow: "hidden" }]}>
+                                        {selectedEnquiry.image ? (
+                                            <Image
+                                                source={{ uri: getImageUrl(selectedEnquiry.image) }}
+                                                style={{ width: "100%", height: "100%" }}
+                                                resizeMode="cover"
+                                            />
+                                        ) : (
+                                            <Text style={styles.contextAvatarText}>
+                                                {selectedEnquiry.name ? selectedEnquiry.name.substring(0, 2).toUpperCase() : "NA"}
+                                            </Text>
+                                        )}
+                                    </View>
+                                    <View>
+                                        <Text style={styles.contextName}>{selectedEnquiry.name}</Text>
+                                        <Text style={styles.contextDate}>{selectedEnquiry.mobile}</Text>
+                                    </View>
+                                    {selectedEnquiry.status === "Drop" && (
+                                        <View style={[styles.statusTag, { backgroundColor: COLORS.danger + "15", marginLeft: 'auto' }]}>
+                                            <Text style={[styles.statusTagText, { color: COLORS.danger }]}>DROPPED</Text>
+                                        </View>
                                     )}
                                 </View>
 
-                                {editStatus === "Followup" && (
-                                    <View style={lightStyles.inputGroup}>
-                                        <Text style={lightStyles.inputLabel}>
-                                            Next Date
-                                        </Text>
-                                        <TextInput
-                                            value={editNextDate}
-                                            onChangeText={setEditNextDate}
-                                            placeholder="YYYY-MM-DD"
-                                            style={lightStyles.modalInput}
-                                        />
-                                    </View>
-                                )}
-
-                                {editStatus === "Sales" && (
-                                    <View style={lightStyles.inputGroup}>
-                                        <Text style={lightStyles.inputLabel}>
-                                            Amount (₹)
-                                        </Text>
-                                        <TextInput
-                                            value={editAmount}
-                                            onChangeText={setEditAmount}
-                                            keyboardType="numeric"
-                                            placeholder="0.00"
-                                            style={lightStyles.modalInput}
-                                        />
-                                    </View>
-                                )}
-
-                                <View style={lightStyles.sheetFooter}>
-                                    <TouchableOpacity
-                                        style={lightStyles.btnSecondary}
-                                        onPress={() => setShowEditModal(false)}>
-                                        <Text
-                                            style={
-                                                lightStyles.btnSecondaryText
-                                            }>
-                                            Cancel
-                                        </Text>
-                                    </TouchableOpacity>
-                                    <TouchableOpacity
-                                        style={lightStyles.btnPrimary}
-                                        onPress={handleSaveEdit}>
-                                        <Text
-                                            style={lightStyles.btnPrimaryText}>
-                                            Save
-                                        </Text>
-                                    </TouchableOpacity>
-                                </View>
+                                <DetailRow label="Product" value={selectedEnquiry.product} />
+                                <DetailRow label="Enquiry No" value={selectedEnquiry.enqNo} />
+                                <DetailRow label="Status" value={selectedEnquiry.status} />
+                                <DetailRow label="Remarks" value={selectedEnquiry.requirements || "No remarks"} />
+                                <DetailRow label="Source" value={selectedEnquiry.source || "N/A"} />
+                                <DetailRow label="Address" value={selectedEnquiry.address || "N/A"} />
+                                <View style={{ height: 30 }} />
                             </ScrollView>
                         )}
                     </View>
                 </View>
             </Modal>
-        </SafeAreaView>
+
+            {/* History Modal */}
+            <Modal visible={showHistoryModal} transparent animationType="fade">
+                <View style={styles.popupOverlay}>
+                    <View style={styles.historyPopup}>
+                        <View style={styles.handleBar} />
+
+                        <View style={styles.historyModalHeader}>
+                            <View style={styles.historyHeaderIcon}>
+                                <Ionicons name="time-outline" size={24} color={COLORS.primary} />
+                            </View>
+                            <View style={styles.historyHeaderText}>
+                                <Text style={styles.historyModalTitle}>Follow-up History</Text>
+                                <Text style={styles.historyModalSubtitle}>All interactions & updates</Text>
+                            </View>
+                            <TouchableOpacity onPress={() => setShowHistoryModal(false)} style={styles.historyCloseButton}>
+                                <Ionicons name="close" size={22} color={COLORS.textMain} />
+                            </TouchableOpacity>
+                        </View>
+
+                        {historyLoading ? (
+                            <View style={styles.loadingContainer}>
+                                <ActivityIndicator size="large" color={COLORS.primary} />
+                                <Text style={styles.loadingText}>Loading history...</Text>
+                            </View>
+                        ) : enquiryHistory.length === 0 ? (
+                            <View style={styles.historyEmptyContainer}>
+                                <View style={styles.historyEmptyIconBg}>
+                                    <Ionicons name="document-text-outline" size={48} color={COLORS.textLight} />
+                                </View>
+                                <Text style={styles.historyEmptyTitle}>No Activity Yet</Text>
+                                <Text style={styles.historyEmptyDesc}>Historical interactions will appear here.</Text>
+                            </View>
+                        ) : (
+                            <FlatList
+                                data={enquiryHistory}
+                                keyExtractor={(item, index) => item._id || `history-${index}`}
+                                contentContainerStyle={styles.historyList}
+                                showsVerticalScrollIndicator={false}
+                                renderItem={({ item, index }) => {
+                                    const getTypeConfig = (type) => {
+                                        const t = (type || "").toLowerCase();
+                                        if (t.includes("call")) return { icon: "call", color: COLORS.success };
+                                        if (t.includes("whatsapp")) return { icon: "logo-whatsapp", color: COLORS.whatsapp };
+                                        if (t.includes("email")) return { icon: "mail", color: COLORS.info };
+                                        if (t.includes("meeting")) return { icon: "people", color: COLORS.accent };
+                                        return { icon: "chatbubble-ellipses", color: COLORS.primary };
+                                    };
+
+                                    const getStatusConfig = (status) => {
+                                        const s = (status || "").toLowerCase();
+                                        if (s.includes("sales")) return { color: COLORS.success, label: "CONVERTED" };
+                                        if (s.includes("drop")) return { color: COLORS.danger, label: "DROPPED" };
+                                        return { color: COLORS.primary, label: status?.toUpperCase() || "FOLLOW-UP" };
+                                    };
+
+                                    const typeConfig = getTypeConfig(item.type);
+                                    const statusConfig = getStatusConfig(item.status);
+
+                                    return (
+                                        <MotiView
+                                            from={{ opacity: 0, translateX: -20 }}
+                                            animate={{ opacity: 1, translateX: 0 }}
+                                            transition={{ delay: index * 100 }}
+                                            style={styles.historyTimelineItem}
+                                        >
+                                            <View style={styles.timelineLeft}>
+                                                <View style={[styles.timelineDot, { backgroundColor: typeConfig.color }]}>
+                                                    <Ionicons name={typeConfig.icon} size={12} color="#FFF" />
+                                                </View>
+                                                {index !== enquiryHistory.length - 1 && <View style={styles.timelineConnector} />}
+                                            </View>
+
+                                            <View style={styles.historyContentCard}>
+                                                <View style={styles.historyCardHeader}>
+                                                    <View>
+                                                        <Text style={styles.historyDateText}>{item.date}</Text>
+                                                        <Text style={styles.historyTimeText}>{item.time || ""}</Text>
+                                                    </View>
+                                                    <View style={[styles.historyStatusPill, { backgroundColor: statusConfig.color + "15" }]}>
+                                                        <Text style={[styles.historyStatusPillText, { color: statusConfig.color }]}>
+                                                            {statusConfig.label}
+                                                        </Text>
+                                                    </View>
+                                                </View>
+                                                <View style={styles.historyRemarksBox}>
+                                                    <Text style={styles.historyRemarksText}>{item.remarks}</Text>
+                                                    {item.amount > 0 && (
+                                                        <Text style={[styles.historyRemarksText, { color: COLORS.success, fontWeight: '800', marginTop: 4 }]}>
+                                                            Revenue: ₹{item.amount.toLocaleString()}
+                                                        </Text>
+                                                    )}
+                                                </View>
+                                            </View>
+                                        </MotiView>
+                                    );
+                                }}
+                            />
+                        )}
+                    </View>
+                </View>
+            </Modal>
+
+            {/* Edit Modal (Update Follow-up) */}
+            <Modal visible={showEditModal} transparent animationType="fade">
+                <View style={styles.popupOverlay}>
+                    <View style={styles.editPopup}>
+                        <View style={styles.handleBar} />
+                        <View style={styles.sheetHeader}>
+                            <Text style={styles.sheetTitle}>Update Follow-up</Text>
+                            <TouchableOpacity onPress={() => setShowEditModal(false)} style={styles.closeCircle}>
+                                <Ionicons name="close" size={20} color={COLORS.textMain} />
+                            </TouchableOpacity>
+                        </View>
+
+                        <ScrollView showsVerticalScrollIndicator={false} style={{ paddingHorizontal: 24 }}>
+                            {editItem && (
+                                <>
+                                    <View style={styles.contextCard}>
+                                        <View style={styles.contextAvatar}>
+                                            <Text style={styles.contextAvatarText}>{editItem.name?.substring(0, 2).toUpperCase()}</Text>
+                                        </View>
+                                        <View>
+                                            <Text style={styles.contextName}>{editItem.name}</Text>
+                                            <Text style={styles.contextDate}>{editItem.date}</Text>
+                                        </View>
+                                    </View>
+
+                                    <Text style={styles.label}>Remarks</Text>
+                                    <View style={styles.textAreaContainer}>
+                                        <TextInput
+                                            value={editRemarks}
+                                            onChangeText={(text) => {
+                                                console.log("Typing internal:", text);
+                                                setEditRemarks(text);
+                                            }}
+                                            placeholder="Write follow-up notes..."
+                                            style={[styles.textArea, { minHeight: 80 }]}
+                                            multiline
+                                            textAlignVertical="top"
+                                            scrollEnabled={false}
+                                        />
+                                    </View>
+
+                                    <Text style={styles.label}>Action</Text>
+                                    <View style={styles.actionGrid}>
+                                        {[
+                                            { id: "Followup", icon: "calendar-outline", color: COLORS.primary },
+                                            { id: "Sales", icon: "cash-outline", color: COLORS.success },
+                                            { id: "Drop", icon: "close-circle-outline", color: COLORS.danger },
+                                        ].map((action) => (
+                                            <TouchableOpacity
+                                                key={action.id}
+                                                onPress={() => setEditStatus(action.id)}
+                                                style={[styles.actionCard, editStatus === action.id && { borderColor: action.color, backgroundColor: action.color + "10" }]}
+                                            >
+                                                <View style={[styles.actionIconBox, editStatus === action.id && { backgroundColor: action.color }]}>
+                                                    <Ionicons name={action.icon} size={20} color={editStatus === action.id ? "#FFF" : action.color} />
+                                                </View>
+                                                <Text style={[styles.actionCardText, editStatus === action.id && { color: action.color, fontWeight: "700" }]}>{action.id}</Text>
+                                            </TouchableOpacity>
+                                        ))}
+                                    </View>
+
+                                    {editStatus === "Followup" && (
+                                        <>
+                                            <Text style={styles.label}>Next Date</Text>
+                                            <TouchableOpacity style={styles.datePickerButton} onPress={showDatePicker}>
+                                                <Ionicons name="calendar-outline" size={20} color={COLORS.textLight} />
+                                                <Text style={[styles.datePickerText, { color: editNextDate ? COLORS.textMain : COLORS.textLight }]}>
+                                                    {editNextDate || "Select date"}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        </>
+                                    )}
+
+                                    {editStatus === "Sales" && (
+                                        <>
+                                            <Text style={styles.label}>Amount (₹)</Text>
+                                            <TextInput
+                                                value={editAmount}
+                                                onChangeText={setEditAmount}
+                                                keyboardType="numeric"
+                                                placeholder="0.00"
+                                                style={styles.textInput}
+                                            />
+                                        </>
+                                    )}
+
+                                    <View style={styles.footerButtons}>
+                                        <TouchableOpacity style={styles.btnSecondary} onPress={() => setShowEditModal(false)}>
+                                            <Text style={styles.btnSecondaryText}>Cancel</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity style={styles.btnPrimary} onPress={handleSaveEdit}>
+                                            <Text style={styles.btnPrimaryText}>Save</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                    <View style={{ height: 30 }} />
+                                </>
+                            )}
+                        </ScrollView>
+                    </View>
+                </View>
+            </Modal>
+
+            {/* Calendar Modal */}
+            <Modal visible={isDatePickerVisible} transparent animationType="fade">
+                <View style={styles.popupOverlay}>
+                    <View style={styles.calendarPopup}>
+                        <View style={styles.handleBar} />
+                        <View style={styles.calendarHeader}>
+                            <TouchableOpacity onPress={() => {
+                                const newDate = new Date(calendarMonth);
+                                newDate.setMonth(newDate.getMonth() - 1);
+                                setCalendarMonth(newDate);
+                            }}>
+                                <Ionicons name="chevron-back" size={24} color={COLORS.primary} />
+                            </TouchableOpacity>
+                            <Text style={styles.calendarTitle}>
+                                {calendarMonth.toLocaleString("default", { month: "long", year: "numeric" })}
+                            </Text>
+                            <TouchableOpacity onPress={() => {
+                                const newDate = new Date(calendarMonth);
+                                newDate.setMonth(newDate.getMonth() + 1);
+                                setCalendarMonth(newDate);
+                            }}>
+                                <Ionicons name="chevron-forward" size={24} color={COLORS.primary} />
+                            </TouchableOpacity>
+                        </View>
+
+                        <View style={styles.weekdaysRow}>
+                            {["M", "T", "W", "T", "F", "S", "S"].map((day, idx) => (
+                                <Text key={idx} style={styles.weekdayName}>{day}</Text>
+                            ))}
+                        </View>
+
+                        <View style={styles.calendarGrid}>
+                            {renderCalendarDays().map((day, idx) => (
+                                <TouchableOpacity
+                                    key={idx}
+                                    disabled={!day}
+                                    onPress={() => day && handleConfirmDate(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), day))}
+                                    style={[styles.calendarDay, !day && styles.emptyDay, day === new Date().getDate() && calendarMonth.getMonth() === new Date().getMonth() && styles.todayDay]}
+                                >
+                                    {day && <Text style={[styles.calendarDayText, day === new Date().getDate() && calendarMonth.getMonth() === new Date().getMonth() && styles.todayDayText]}>{day}</Text>}
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+                        <TouchableOpacity style={styles.calendarCancelBtn} onPress={hideDatePicker}>
+                            <Text style={styles.calendarCancelText}>Cancel</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal >
+        </SafeAreaView >
     );
 }
 
-// --- LIGHT MODERN STYLES ---
-const lightStyles = StyleSheet.create({
-    safeArea: { flex: 1, backgroundColor: THEME.bg },
+const DetailRow = ({ label, value }) => (
+    <View style={styles.detailRow}>
+        <Text style={styles.detailLabel}>{label}</Text>
+        <Text style={styles.detailValue}>{value}</Text>
+    </View>
+);
 
-    // Header
-    headerContainer: {
-        backgroundColor: THEME.card,
-        borderBottomWidth: 1,
-        borderBottomColor: THEME.border,
-        zIndex: 10,
+const styles = StyleSheet.create({
+    safeArea: { flex: 1, backgroundColor: COLORS.bgApp },
+    headerGradient: {
+        paddingTop: Platform.OS === "android" ? StatusBar.currentHeight + 10 : 10,
+        paddingHorizontal: 20,
+        paddingBottom: 25,
+        borderBottomLeftRadius: 32,
+        borderBottomRightRadius: 32,
     },
-    header: {
+    tabBarContainer: {
         flexDirection: "row",
-        justifyContent: "space-between",
-        alignItems: "center",
-        paddingHorizontal: 16,
+        backgroundColor: "#FFF",
+        paddingHorizontal: 20,
         paddingVertical: 12,
-        marginTop: Platform.OS === "android" ? StatusBar.currentHeight : 0,
-    },
-    headerLeft: { flexDirection: "row", alignItems: "center" },
-    headerTitle: {
-        fontSize: 18,
-        fontWeight: "700",
-        color: THEME.textMain,
-        marginLeft: 8,
-    },
-    headerRight: { flexDirection: "row" },
-    backBtn: { padding: 4, marginRight: 4 },
-    iconBtn: { padding: 8 },
-
-    // Search
-    searchContainer: {
-        flexDirection: "row",
-        alignItems: "center",
-        backgroundColor: THEME.card,
-        marginHorizontal: 16,
-        marginTop: 16,
-        marginBottom: 8,
-        paddingHorizontal: 12,
-        borderRadius: 12,
-        shadowColor: "#000",
-        shadowOpacity: 0.03,
-        shadowRadius: 5,
-        elevation: 2,
-    },
-    searchInput: {
-        marginLeft: 8,
-        flex: 1,
-        fontSize: 15,
-        color: THEME.textMain,
-    },
-
-    // List
-    listPadding: { paddingHorizontal: 16, paddingBottom: 80 },
-    emptyContainer: { alignItems: "center", marginTop: 60 },
-    emptyText: { color: THEME.textSec, marginTop: 12, fontSize: 14 },
-
-    // Card Design
-    card: {
-        backgroundColor: THEME.card,
-        borderRadius: 16,
-        padding: 16,
-        marginBottom: 12,
-        shadowColor: "#000",
-        shadowOpacity: 0.04,
-        shadowRadius: 8,
-        elevation: 2,
-        borderWidth: 1,
-        borderColor: THEME.border,
-    },
-    cardHeader: {
-        flexDirection: "row",
-        justifyContent: "space-between",
-        marginBottom: 12,
-    },
-    cardInfo: { flex: 1 },
-    enqNo: {
-        fontSize: 12,
-        color: THEME.textSec,
-        fontWeight: "600",
-        marginBottom: 4,
-    },
-    cardName: {
-        fontSize: 17,
-        fontWeight: "700",
-        color: THEME.textMain,
-        marginBottom: 6,
-    },
-    metaRow: { flexDirection: "row", alignItems: "center" },
-    metaText: { fontSize: 13, color: THEME.textSec, marginLeft: 4 },
-    statusBadge: {
-        paddingHorizontal: 10,
-        paddingVertical: 4,
-        borderRadius: 8,
-        borderWidth: 1,
-    },
-    statusText: { fontSize: 11, fontWeight: "700", textTransform: "uppercase" },
-
-    cardActions: {
-        flexDirection: "row",
-        alignItems: "center",
-        borderTopWidth: 1,
-        borderTopColor: THEME.bg,
-        paddingTop: 12,
-    },
-    btnPrimary: {
-        flexDirection: "row",
-        backgroundColor: THEME.primary,
-        paddingHorizontal: 16,
-        paddingVertical: 8,
-        borderRadius: 8,
-        alignItems: "center",
-        marginRight: 8,
-    },
-    btnPrimaryText: {
-        color: "#fff",
-        fontWeight: "600",
-        marginLeft: 4,
-        fontSize: 13,
-    },
-    btnIcon: { padding: 6, borderRadius: 8, backgroundColor: THEME.bg },
-
-    fab: {
-        position: "absolute",
-        bottom: 24,
-        right: 24,
-        width: 56,
-        height: 56,
-        borderRadius: 28,
-        backgroundColor: THEME.primary,
-        justifyContent: "center",
-        alignItems: "center",
-        shadowColor: THEME.primary,
-        shadowOpacity: 0.3,
-        shadowRadius: 10,
-        elevation: 5,
-    },
-
-    // Tabs
-    tabsContainer: {
-        flexDirection: "row",
-        backgroundColor: THEME.card,
+        marginBottom: 10,
         borderBottomWidth: 1,
-        borderBottomColor: THEME.border,
+        borderBottomColor: COLORS.bgApp,
     },
-    tab: {
-        flex: 1,
-        paddingVertical: 14,
-        alignItems: "center",
-        borderBottomWidth: 2,
-        borderBottomColor: "transparent",
+    tabItem: {
+        marginRight: 24,
+        paddingVertical: 8,
+        position: "relative",
     },
-    tabActive: { borderBottomColor: THEME.primary },
-    tabText: { fontSize: 14, fontWeight: "500", color: THEME.textSec },
-    tabTextActive: { color: THEME.primary, fontWeight: "700" },
-
-    // Timeline
-    timelinePadding: {
-        paddingHorizontal: 16,
-        paddingTop: 20,
-        paddingBottom: 80,
-    },
-    timelineItem: { flexDirection: "row", marginBottom: 24 },
-    timelineTrack: { alignItems: "center", marginRight: 12 },
-    timelineDot: {
-        width: 14,
-        height: 14,
-        borderRadius: 7,
-        borderWidth: 3,
-        zIndex: 2,
-    },
-    timelineLine: {
-        width: 2,
-        flex: 1,
-        backgroundColor: THEME.border,
-        position: "absolute",
-        top: 14,
-        bottom: -24,
-    },
-    timelineCard: {
-        flex: 1,
-        backgroundColor: THEME.card,
-        borderRadius: 12,
-        padding: 14,
-        borderWidth: 1,
-        borderColor: THEME.border,
-        shadowOpacity: 0.02,
-        shadowRadius: 4,
-        elevation: 1,
-    },
-    timelineHeader: {
-        flexDirection: "row",
-        justifyContent: "space-between",
-        alignItems: "center",
-        marginBottom: 8,
-    },
-    timelineDate: { fontSize: 12, color: THEME.textSec, fontWeight: "600" },
-    pill: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 },
-    pillText: { fontSize: 10, fontWeight: "700" },
-    timelineName: {
+    activeTabItem: {},
+    tabText: {
         fontSize: 15,
-        fontWeight: "700",
-        color: THEME.textMain,
-        marginBottom: 4,
+        fontWeight: "600",
+        color: COLORS.textLight,
     },
-    timelineRemarks: {
-        fontSize: 13,
-        color: THEME.textSec,
-        lineHeight: 20,
-        marginBottom: 12,
+    activeTabText: {
+        color: COLORS.primary,
+        fontWeight: "800",
     },
-    editLink: { alignSelf: "flex-start" },
-    editLinkText: { fontSize: 12, color: THEME.primary, fontWeight: "600" },
-
-    // Modals
-    modalOverlay: {
-        flex: 1,
-        backgroundColor: "rgba(0,0,0,0.4)",
-        justifyContent: "center",
-        alignItems: "center",
-    },
-    bottomSheet: {
-        backgroundColor: THEME.card,
-        width: "100%",
-        height: "70%",
-        borderTopLeftRadius: 24,
-        borderTopRightRadius: 24,
-        padding: 20,
+    activeIndicator: {
         position: "absolute",
         bottom: 0,
+        left: 0,
+        right: 0,
+        height: 3,
+        backgroundColor: COLORS.primary,
+        borderRadius: 2,
     },
-    centerModal: {
-        backgroundColor: THEME.card,
-        width: "90%",
-        borderRadius: 20,
-        padding: 24,
-        maxHeight: "80%",
-    },
-    sheetHeader: {
+    headerTop: {
         flexDirection: "row",
         justifyContent: "space-between",
         alignItems: "center",
         marginBottom: 20,
-        paddingBottom: 10,
-        borderBottomWidth: 1,
-        borderBottomColor: THEME.border,
     },
-    sheetTitle: { fontSize: 18, fontWeight: "700", color: THEME.textMain },
-
-    // Import Row
-    importRow: {
-        flexDirection: "row",
-        padding: 12,
-        borderBottomWidth: 1,
-        borderBottomColor: THEME.border,
+    headerLeft: { flexDirection: "row", alignItems: "center" },
+    menuIconContainer: {
+        width: 44,
+        height: 44,
+        borderRadius: 12,
+        backgroundColor: "rgba(255,255,255,0.15)",
+        justifyContent: "center",
         alignItems: "center",
+        marginRight: 12,
     },
-    importCell: { flex: 1, fontSize: 14, color: THEME.textMain },
-    importError: { backgroundColor: THEME.dangerLight },
-
-    // Edit Modal Specifics
-    infoBlock: { marginBottom: 16 },
-    infoLabel: {
-        fontSize: 12,
-        color: THEME.textSec,
-        fontWeight: "600",
-        marginBottom: 4,
+    greetingHeader: { fontSize: 13, color: "rgba(255,255,255,0.7)", fontWeight: "500" },
+    userNameHeader: { fontSize: 20, color: "#FFF", fontWeight: "800" },
+    notifContainer: { width: 44, height: 44, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.15)", justifyContent: "center", alignItems: "center" },
+    notifBadge: { position: "absolute", top: 12, right: 12, width: 8, height: 8, borderRadius: 4, backgroundColor: COLORS.secondary, borderWidth: 1.5, borderColor: COLORS.gradients.header[1] },
+    searchContainer: {
+        flexDirection: "row",
+        alignItems: "center",
+        backgroundColor: "#FFF",
+        height: 50,
+        borderRadius: 14,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 10,
+        elevation: 5,
     },
-    infoValue: { fontSize: 14, color: THEME.textMain, lineHeight: 20 },
+    searchInput: { flex: 1, marginLeft: 10, fontSize: 15, color: COLORS.textMain },
+    listContent: { paddingHorizontal: 16, paddingTop: 20, paddingBottom: 100 },
+    cardWrapper: { marginBottom: 16 },
+    cardContainer: {
+        backgroundColor: "#FFF",
+        borderRadius: 18,
+        padding: 16,
+        shadowColor: "#64748B",
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.1,
+        shadowRadius: 12,
+        elevation: 4,
+    },
+    cardHeader: { flexDirection: "row", alignItems: "center", marginBottom: 12 },
+    avatarContainer: { width: 48, height: 48, borderRadius: 24, marginRight: 15, elevation: 2 },
+    avatarGradient: { width: "100%", height: "100%", borderRadius: 24, justifyContent: "center", alignItems: "center" },
+    avatarText: { color: "#FFF", fontSize: 16, fontWeight: "800" },
+    cardInfo: { flex: 1 },
+    nameRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 2 },
+    cardName: { fontSize: 16, fontWeight: "700", color: COLORS.textMain, flex: 1 },
+    statusTag: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 5 },
+    statusTagText: { fontSize: 9, fontWeight: "800", textTransform: "uppercase" },
+    subInfoRow: { flexDirection: "row", alignItems: "center" },
+    cardSubtext: { fontSize: 13, color: COLORS.textLight, fontWeight: "500", marginLeft: 4 },
+    dotSeparator: { width: 3, height: 3, borderRadius: 1.5, backgroundColor: COLORS.textLight, marginHorizontal: 8 },
+    productSection: {
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
+        marginBottom: 15,
+        paddingTop: 12,
+        borderTopWidth: 1,
+        borderTopColor: "#F8FAFC",
+    },
+    productTag: { flexDirection: "row", alignItems: "center", backgroundColor: "#F8FAFC", paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, flex: 1, marginRight: 10 },
+    productText: { fontSize: 13, color: COLORS.textMuted, marginLeft: 6, fontWeight: "600" },
+    dateBadge: { flexDirection: "row", alignItems: "center", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10 },
+    dateText: { fontSize: 12, fontWeight: "800", marginLeft: 4 },
+    actionBar: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+    actionLeft: { flexDirection: "row", gap: 8 },
+    actionRight: { flexDirection: "row", gap: 8 },
+    actionBtn: { width: 38, height: 38, borderRadius: 10, justifyContent: "center", alignItems: "center" },
+    emptyContainer: { alignItems: "center", marginTop: 60 },
+    emptyIconBg: { width: 80, height: 80, borderRadius: 24, backgroundColor: COLORS.primaryLight, justifyContent: "center", alignItems: "center", marginBottom: 20 },
+    emptyText: { marginTop: 12, fontSize: 15, color: COLORS.textLight, fontWeight: "600" },
 
-    sectionLabel: {
-        fontSize: 14,
-        fontWeight: "700",
-        color: THEME.textMain,
+    // Modal / Popups
+    modalOverlay: { flex: 1, backgroundColor: "rgba(15, 23, 42, 0.5)", justifyContent: "flex-end" },
+    popupOverlay: { flex: 1, backgroundColor: "rgba(15, 23, 42, 0.6)", justifyContent: "center", alignItems: "center" },
+    bottomSheet: { backgroundColor: "#FFF", width: "100%", height: "85%", borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingTop: 12 },
+    historyPopup: { backgroundColor: "#FFF", width: "92%", height: "80%", borderRadius: 32, paddingTop: 8, overflow: 'hidden', elevation: 20 },
+    detailsPopup: { backgroundColor: "#FFF", width: "92%", maxHeight: "70%", borderRadius: 32, paddingTop: 8, overflow: 'hidden', elevation: 20 },
+    editPopup: { backgroundColor: "#FFF", width: "92%", maxHeight: "85%", borderRadius: 32, paddingTop: 8, overflow: 'hidden', elevation: 20 },
+    calendarPopup: { backgroundColor: "#FFF", width: "90%", borderRadius: 32, padding: 20, elevation: 20 },
+
+    handleBar: { width: 40, height: 4, backgroundColor: COLORS.border, borderRadius: 2, alignSelf: "center", marginBottom: 16 },
+    sheetHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 24, marginBottom: 20 },
+    sheetTitle: { fontSize: 20, fontWeight: "800", color: COLORS.textMain },
+    closeCircle: { width: 32, height: 32, borderRadius: 16, backgroundColor: COLORS.bgApp, justifyContent: "center", alignItems: "center" },
+
+    contextCard: { flexDirection: "row", alignItems: "center", backgroundColor: COLORS.bgApp, padding: 16, borderRadius: 20, marginBottom: 24, borderLeftWidth: 4, borderLeftColor: COLORS.primary },
+    contextAvatar: { width: 60, height: 60, borderRadius: 30, backgroundColor: COLORS.primaryLight, justifyContent: "center", alignItems: "center", marginRight: 15, elevation: 4, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4 },
+    contextAvatarText: { fontSize: 18, fontWeight: "800", color: COLORS.primary },
+    contextName: { fontSize: 16, fontWeight: "700", color: COLORS.textMain },
+    contextDate: { fontSize: 13, color: COLORS.textMuted, marginTop: 2 },
+
+    label: { fontSize: 14, fontWeight: "700", color: COLORS.textMain, marginBottom: 8, marginTop: 16 },
+    textAreaContainer: { backgroundColor: COLORS.bgApp, borderRadius: 12, borderWidth: 1, borderColor: "transparent", padding: 12, minHeight: 100 },
+    textArea: { fontSize: 15, color: COLORS.textMain, textAlignVertical: "top", paddingTop: 0 },
+    textInput: { backgroundColor: COLORS.bgApp, borderRadius: 12, paddingHorizontal: 16, height: 48, fontSize: 15, color: COLORS.textMain },
+
+    actionGrid: { flexDirection: "row", justifyContent: "space-between", marginTop: 8, marginBottom: 8 },
+    actionCard: { flex: 1, alignItems: "center", justifyContent: "center", padding: 16, borderRadius: 12, borderWidth: 1.5, borderColor: COLORS.bgApp, backgroundColor: "#FFF", marginHorizontal: 4, position: "relative" },
+    actionIconBox: { width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.bgApp, justifyContent: "center", alignItems: "center", marginBottom: 8 },
+    actionCardText: { fontSize: 13, fontWeight: "600", color: COLORS.textMuted },
+    checkBadge: { position: "absolute", top: 8, right: 8, width: 18, height: 18, borderRadius: 9, backgroundColor: COLORS.success, justifyContent: "center", alignItems: "center" },
+
+    footerButtons: { flexDirection: "row", gap: 12, marginTop: 24, marginBottom: 20 },
+    btnSecondary: { flex: 1, paddingVertical: 16, borderRadius: 12, backgroundColor: COLORS.bgApp, alignItems: "center", borderWidth: 1, borderColor: COLORS.border },
+    btnSecondaryText: { color: COLORS.textMain, fontWeight: "700", fontSize: 15 },
+    btnPrimary: { flex: 1, paddingVertical: 16, borderRadius: 12, backgroundColor: COLORS.primary, alignItems: "center" },
+    btnPrimaryText: { color: "#FFF", fontWeight: "700", fontSize: 15 },
+
+    datePickerButton: { flexDirection: "row", alignItems: "center", backgroundColor: COLORS.bgApp, paddingHorizontal: 16, borderRadius: 12, height: 52, marginTop: 8 },
+    datePickerText: { fontSize: 15, color: COLORS.textMain, marginLeft: 12 },
+
+    // History Modal
+    historyModalHeader: { flexDirection: "row", alignItems: "center", paddingHorizontal: 20, paddingVertical: 18, borderBottomWidth: 1, borderBottomColor: COLORS.bgApp },
+    historyHeaderIcon: { width: 48, height: 48, borderRadius: 12, backgroundColor: COLORS.primaryLight, justifyContent: "center", alignItems: "center", marginRight: 14 },
+    historyHeaderText: { flex: 1 },
+    historyModalTitle: { fontSize: 20, fontWeight: "800", color: COLORS.textMain },
+    historyModalSubtitle: { fontSize: 13, color: COLORS.textMuted, fontWeight: "500" },
+    historyCloseButton: { width: 40, height: 40, borderRadius: 12, backgroundColor: COLORS.bgApp, justifyContent: "center", alignItems: "center" },
+    historyList: { paddingHorizontal: 20, paddingTop: 10, paddingBottom: 40 },
+    historyTimelineItem: { flexDirection: "row", marginBottom: 20 },
+    timelineLeft: { width: 40, alignItems: "center" },
+    timelineDot: { width: 26, height: 26, borderRadius: 13, justifyContent: "center", alignItems: "center", zIndex: 2, elevation: 3, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 3 },
+    timelineConnector: { position: "absolute", top: 26, bottom: -20, width: 2, backgroundColor: "#E2E8F0", zIndex: 1 },
+    historyContentCard: { flex: 1, backgroundColor: "#FFF", borderRadius: 20, padding: 16, borderLeftWidth: 4, borderLeftColor: COLORS.primary, shadowColor: "#64748B", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 8, elevation: 3 },
+    historyCardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 },
+    historyDateText: { fontSize: 14, fontWeight: "800", color: COLORS.textMain },
+    historyTimeText: { fontSize: 12, color: COLORS.textLight, marginTop: 2, fontWeight: "600" },
+    historyStatusPill: { flexDirection: "row", alignItems: "center", paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 },
+    historyStatusPillText: { fontSize: 10, fontWeight: "800", letterSpacing: 0.5 },
+    historyRemarksBox: { backgroundColor: COLORS.bgApp, padding: 12, borderRadius: 12, marginBottom: 4 },
+    historyRemarksText: { fontSize: 13, color: COLORS.textMuted, lineHeight: 18, fontWeight: "500" },
+    historyEmptyContainer: { flex: 0.8, justifyContent: "center", alignItems: "center", paddingHorizontal: 40, minHeight: 300 },
+    historyEmptyIconBg: { width: 80, height: 80, borderRadius: 30, backgroundColor: COLORS.bgApp, justifyContent: "center", alignItems: "center", marginBottom: 20 },
+    historyEmptyTitle: { fontSize: 18, fontWeight: "800", color: COLORS.textMain, marginBottom: 8 },
+    historyEmptyDesc: { fontSize: 14, color: COLORS.textLight, textAlign: "center", lineHeight: 20, fontWeight: "500" },
+    loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center", minHeight: 200 },
+    loadingText: { marginTop: 12, fontSize: 14, color: COLORS.textMuted, fontWeight: "600" },
+
+    detailRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: COLORS.border, marginHorizontal: 24 },
+    detailLabel: { fontSize: 13, color: COLORS.textMuted, fontWeight: "600" },
+    detailValue: { fontSize: 14, color: COLORS.textMain, fontWeight: "700", textAlign: "right", flex: 1, marginLeft: 20 },
+
+    // Calendar Specific
+    calendarHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20 },
+    calendarTitle: { fontSize: 18, fontWeight: "800", color: COLORS.textMain },
+    weekdaysRow: { flexDirection: "row", justifyContent: "space-around", marginBottom: 10 },
+    weekdayName: { fontSize: 12, fontWeight: "700", color: COLORS.textLight, width: 35, textAlign: "center" },
+    calendarGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-around" },
+    calendarDay: { width: 35, height: 35, justifyContent: "center", alignItems: "center", marginBottom: 5, borderRadius: 10 },
+    emptyDay: { backgroundColor: "transparent" },
+    calendarDayText: { fontSize: 14, fontWeight: "600", color: COLORS.textMain },
+    todayDay: { backgroundColor: COLORS.primary },
+    todayDayText: { color: "#FFF", fontWeight: "800" },
+    calendarCancelBtn: { marginTop: 20, paddingVertical: 12, alignItems: "center", borderTopWidth: 1, borderTopColor: COLORS.border },
+    calendarCancelText: { color: COLORS.danger, fontWeight: "700", fontSize: 15 },
+});
+
+const menuStyles = StyleSheet.create({
+    menuOverlay: { flex: 1, backgroundColor: "rgba(15, 23, 42, 0.5)" },
+    menuContent: { width: "75%", backgroundColor: "#fff", height: "100%", borderTopRightRadius: 30, borderBottomRightRadius: 30, overflow: "hidden" },
+    menuHeader: { paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight + 20 : 50, paddingBottom: 30, alignItems: "center" },
+    profileCircle: { width: 70, height: 70, borderRadius: 35, backgroundColor: "rgba(255,255,255,0.2)", justifyContent: "center", alignItems: "center", marginBottom: 12 },
+    profileName: { color: "#fff", fontSize: 18, fontWeight: "800" },
+    profileRole: { color: "rgba(255,255,255,0.7)", fontSize: 13, fontWeight: "600" },
+    menuList: { padding: 15 },
+    menuItem: { flexDirection: "row", alignItems: "center", padding: 14, borderRadius: 12, marginBottom: 8 },
+    menuItemText: { marginLeft: 15, fontSize: 15, fontWeight: "700" },
+
+    // Logo Section Styles
+    logoSection: {
+        marginTop: 30,
+        paddingTop: 20,
+        paddingBottom: 30,
+        borderTopWidth: 1,
+        borderTopColor: COLORS.border,
+        alignItems: 'center',
+    },
+    logoContainer: {
+        alignItems: 'center',
         marginBottom: 12,
     },
-    chipGroup: { flexDirection: "row", gap: 12, marginBottom: 16 },
-    optionCard: {
-        flex: 1,
-        flexDirection: "row",
-        alignItems: "center",
-        padding: 12,
-        borderRadius: 10,
-        borderWidth: 1,
-        borderColor: THEME.border,
-        backgroundColor: THEME.bg,
+    logoText: {
+        fontSize: 16,
+        fontWeight: '800',
+        color: COLORS.textMain,
+        marginTop: 8,
     },
-    optionCardActive: {
-        borderColor: THEME.primary,
-        backgroundColor: THEME.primaryLight,
-    },
-    radioCircle: {
-        width: 18,
-        height: 18,
-        borderRadius: 9,
-        borderWidth: 2,
-        borderColor: THEME.textSec,
-        marginRight: 8,
-    },
-    radioCircleActive: {
-        borderColor: THEME.primary,
-        backgroundColor: THEME.primary,
-    },
-    optionText: { fontSize: 14, color: THEME.textSec, fontWeight: "500" },
-    optionTextActive: { color: THEME.primaryText, fontWeight: "700" },
-
-    inputGroup: { marginBottom: 16 },
-    inputLabel: {
-        fontSize: 13,
-        fontWeight: "600",
-        color: THEME.textMain,
-        marginBottom: 6,
-    },
-    modalInput: {
-        backgroundColor: THEME.bg,
-        borderWidth: 1,
-        borderColor: THEME.border,
-        borderRadius: 8,
-        padding: 12,
-        fontSize: 14,
-        color: THEME.textMain,
-    },
-
-    sheetFooter: { flexDirection: "row", gap: 12, marginTop: 10 },
-    btnSecondary: {
-        flex: 1,
-        padding: 12,
-        borderRadius: 10,
-        borderWidth: 1,
-        borderColor: THEME.border,
-        alignItems: "center",
-        backgroundColor: "#fff",
-    },
-    btnSecondaryText: {
-        color: THEME.textMain,
-        fontWeight: "600",
-        fontSize: 14,
-    },
-    btnPrimary: {
-        flex: 1,
-        padding: 12,
-        borderRadius: 10,
-        backgroundColor: THEME.primary,
-        alignItems: "center",
-    },
-    btnPrimaryText: { color: "#fff", fontWeight: "700", fontSize: 14 },
-
-    exportRow: { flexDirection: "row", alignItems: "center", marginBottom: 16 },
-    exportLabel: {
-        width: 60,
-        fontSize: 14,
-        color: THEME.textSec,
-        fontWeight: "500",
-    },
-
-    // Calendar View Styles
-    calendarPadding: {
-        paddingHorizontal: 16,
-        paddingTop: 16,
-        paddingBottom: 80,
-    },
-    dateSection: {
-        marginBottom: 24,
-        backgroundColor: THEME.card,
-        borderRadius: 12,
-        overflow: "hidden",
-        borderWidth: 1,
-        borderColor: THEME.border,
-        shadowOpacity: 0.02,
-        shadowRadius: 4,
-        elevation: 1,
-    },
-    dateHeader: {
-        flexDirection: "row",
-        alignItems: "center",
-        backgroundColor: THEME.primaryLight,
-        paddingHorizontal: 16,
-        paddingVertical: 12,
-        borderBottomWidth: 1,
-        borderBottomColor: THEME.border,
-        gap: 8,
-    },
-    dateTitle: {
-        fontSize: 15,
-        fontWeight: "700",
-        color: THEME.primaryText,
-        flex: 1,
-    },
-    dateCount: {
+    logoSubtext: {
         fontSize: 12,
-        color: THEME.textSec,
-        fontWeight: "600",
+        color: COLORS.textMuted,
+        marginTop: 2,
     },
-    followupItem: {
-        flexDirection: "row",
-        alignItems: "center",
-        paddingHorizontal: 16,
-        paddingVertical: 12,
-        borderBottomWidth: 1,
-        borderBottomColor: THEME.border,
+    logoIconCircle: {
+        width: 50,
+        height: 50,
+        borderRadius: 25,
+        backgroundColor: COLORS.primary,
+        justifyContent: 'center',
+        alignItems: 'center',
+        shadowColor: COLORS.primary,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+        elevation: 5,
     },
-    followupLeft: {
-        flex: 1,
+    logoImage: {
+        width: 120,
+        height: 40,
     },
-    followupName: {
-        fontSize: 14,
-        fontWeight: "700",
-        color: THEME.textMain,
-        marginBottom: 2,
-    },
-    followupRemarks: {
-        fontSize: 12,
-        color: THEME.textSec,
-        lineHeight: 16,
-    },
-    followupBtn: {
-        padding: 6,
-        borderRadius: 8,
-        backgroundColor: THEME.primaryLight,
+    versionText: {
+        fontSize: 11,
+        color: COLORS.textMuted,
+        fontWeight: '500',
     },
 });

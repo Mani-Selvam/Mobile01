@@ -3,39 +3,81 @@ const router = express.Router();
 const mongoose = require("mongoose");
 const FollowUp = require("../models/FollowUp");
 
-// GET Follow-ups with Tabs
+// GET Follow-ups with Tabs & Pagination
 router.get("/", async (req, res) => {
     try {
-        const { tab } = req.query;
+        const { tab, page = 1, limit = 20 } = req.query;
         const today = new Date().toISOString().split("T")[0];
+        // console.log(`[GET /followups] Tab: ${tab}, Page: ${page}`);
 
         let query = {};
+
+        // Active tabs should not show Completed or Dropped records (case-insensitive)
+        const activeFilter = {
+            status: { $nin: ["Completed", "Drop", "Dropped", "dropped", "drop"] },
+            nextAction: { $nin: ["Drop", "Dropped", "dropped", "drop"] }
+        };
 
         if (tab === "Today") {
             query = {
                 date: today,
-                status: { $ne: "Completed" },
+                ...activeFilter
             };
         } else if (tab === "Upcoming") {
             query = {
                 date: { $gt: today },
-                status: { $ne: "Completed" },
+                ...activeFilter
             };
         } else if (tab === "Missed") {
             query = {
                 date: { $lt: today },
-                status: { $ne: "Completed" },
+                ...activeFilter
             };
+        } else if (tab === "Dropped") {
+            query = {
+                $or: [
+                    { status: "Drop" },
+                    { nextAction: "Drop" }
+                ]
+            };
+        } else if (tab === "All") {
+            query = {};
         } else if (tab === "Completed") {
             query = {
                 status: "Completed",
             };
         }
 
-        console.log("Fetching follow-ups with query:", query);
-        const followUps = await FollowUp.find(query).sort({ date: -1 });
-        console.log(`Found ${followUps.length} follow-ups for tab: ${tab}`);
-        res.json(followUps);
+        const pageNum = parseInt(page);
+        const limitNum = parseInt(limit);
+        const skip = (pageNum - 1) * limitNum;
+
+        // console.log("Fetching follow-ups with query:", JSON.stringify(query));
+
+        // Use populate to get the full enquiry data including the profile image
+        const followUps = await FollowUp.find(query)
+            .select('date status nextAction remarks enqId enqNo name mobile product createdAt')
+            .sort({ date: -1 })
+            .skip(skip)
+            .limit(limitNum)
+            .populate({
+                path: 'enqId',
+                select: 'name mobile image product enqNo source address requirements status date createdAt'
+            })
+            .lean();
+
+        const total = await FollowUp.countDocuments(query);
+
+        // console.log(`[GET /followups] Found ${followUps.length} records. Total: ${total}`);
+        res.json({
+            data: followUps,
+            pagination: {
+                total,
+                page: pageNum,
+                limit: limitNum,
+                pages: Math.ceil(total / limitNum)
+            }
+        });
     } catch (err) {
         console.error("Get follow-ups error:", err);
         res.status(500).json({ message: err.message });
@@ -124,6 +166,33 @@ router.delete("/:id", async (req, res) => {
         res.json({ message: "Follow-up deleted", data: followUp });
     } catch (err) {
         console.error("Delete error:", err);
+        res.status(500).json({ message: err.message });
+    }
+});
+
+// GET Follow-up History (all records for an enquiry)
+router.get("/history/:enqNoOrId", async (req, res) => {
+    try {
+        const { enqNoOrId } = req.params;
+
+        // Try to find by enqNo first, then by ID
+        let query = { enqNo: enqNoOrId };
+
+        // If it looks like a MongoDB ID, also search by that
+        if (mongoose.Types.ObjectId.isValid(enqNoOrId)) {
+            query = { $or: [{ enqNo: enqNoOrId }, { enqId: enqNoOrId }] };
+        }
+
+        const history = await FollowUp.find(query)
+            .sort({ createdAt: -1 })
+            .lean();
+
+        console.log(
+            `Found ${history.length} follow-up records for ${enqNoOrId}`,
+        );
+        res.json(history);
+    } catch (err) {
+        console.error("Get history error:", err);
         res.status(500).json({ message: err.message });
     }
 });

@@ -5,11 +5,9 @@ const connectDB = async () => {
         // Try MongoDB Atlas first
         const mongoURI =
             process.env.MONGODB_URI ||
-            "mongodb+srv://mani001:001@cluster0.tzie1yt.mongodb.net/crm_db?retryWrites=true&w=majority";
+            "mongodb+srv://mani001:admin@cluster0.tzie1yt.mongodb.net/crm_db?retryWrites=true&w=majority";
 
         const conn = await mongoose.connect(mongoURI, {
-            useNewUrlParser: true,
-            useUnifiedTopology: true,
             serverSelectionTimeoutMS: 5000,
             socketTimeoutMS: 45000,
         });
@@ -25,10 +23,8 @@ const connectDB = async () => {
         try {
             console.log("Attempting to connect to local MongoDB...");
             const conn = await mongoose.connect(
-                "mongodb://localhost:27017/crm_db",
+                "mongodb+srv://mani001:admin@cluster0.tzie1yt.mongodb.net/crm_db?retryWrites=true&w=majority",
                 {
-                    useNewUrlParser: true,
-                    useUnifiedTopology: true,
                     serverSelectionTimeoutMS: 5000,
                 },
             );

@@ -1,18 +1,23 @@
+import { Ionicons } from "@expo/vector-icons";
+import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import { Ionicons } from "@expo/vector-icons";
+import { useEffect } from "react";
 import { ActivityIndicator, View } from "react-native";
-import Home from "../screens/HomeScreen";
-import IntroScreen from "../screens/IntroScreen";
-import OnboardingScreen from "../screens/OnboardingScreen";
+import { useAuth } from "../contexts/AuthContext";
+import AddEnquiryScreen from "../screens/AddEnquiryScreen";
+import ForgotPasswordScreen from "../screens/Auth/ForgotPasswordScreen";
 import LoginScreen from "../screens/Auth/LoginScreen";
 import SignupScreen from "../screens/Auth/SignupScreen";
 import EnquiryScreen from "../screens/EnquiryScreen";
-import AddEnquiryScreen from "../screens/AddEnquiryScreen";
 import FollowUpScreen from "../screens/FollowUpScreen";
+import Home from "../screens/HomeScreen";
+import IntroScreen from "../screens/IntroScreen";
+import LeadSourceScreen from "../screens/LeadSourceScreen";
+import OnboardingScreen from "../screens/OnboardingScreen";
 import ReportScreen from "../screens/ReportScreen";
-import { useAuth } from "../contexts/AuthContext";
+import StaffScreen from "../screens/StaffScreen";
+import notificationService from "../services/notificationService";
 import { navigationRef } from "./navigationRef";
 
 const Stack = createNativeStackNavigator();
@@ -90,8 +95,17 @@ function MainTabNavigator() {
     );
 }
 
+
 export default function AppNavigator() {
     const { isLoggedIn, onboardingCompleted, isLoading } = useAuth();
+
+    // Setup global notification listener
+    useEffect(() => {
+        const subscription = notificationService.setupGlobalNotificationListener(navigationRef);
+        return () => {
+            subscription && subscription.remove();
+        };
+    }, []);
 
     // Show loading spinner while checking auth state
     if (isLoading) {
@@ -121,6 +135,7 @@ export default function AppNavigator() {
                     />
                     <Stack.Screen name="Login" component={LoginScreen} />
                     <Stack.Screen name="Signup" component={SignupScreen} />
+                    <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
                 </Stack.Navigator>
             ) : (
                 // App Stack (logged in)
@@ -128,6 +143,11 @@ export default function AppNavigator() {
                     screenOptions={{ headerShown: false }}
                     initialRouteName="Main">
                     <Stack.Screen name="Main" component={MainTabNavigator} />
+                    <Stack.Screen
+                        name="LeadSourceScreen"
+                        component={LeadSourceScreen}
+                    />
+                    <Stack.Screen name="StaffScreen" component={StaffScreen} />
                 </Stack.Navigator>
             )}
         </NavigationContainer>

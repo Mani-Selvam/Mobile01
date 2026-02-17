@@ -1,5 +1,5 @@
-import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import axios from "axios";
 import { API_URL } from "./apiConfig";
 
 // Create axios instance with auth token
@@ -20,14 +20,14 @@ const createApiClient = async () => {
     });
 };
 
-// GET FOLLOWUPS (with tab filter)
-export const getFollowUps = async (tab = "Today") => {
+// GET FOLLOWUPS (with tab filter and pagination)
+export const getFollowUps = async (tab = "Today", page = 1, limit = 20) => {
     try {
         const client = await createApiClient();
         const response = await client.get("/followups", {
-            params: { tab },
+            params: { tab, page, limit },
         });
-        return response.data;
+        return response.data; // Now returns { data: [], pagination: {} }
     } catch (error) {
         console.error(
             "Get followups error:",
@@ -76,6 +76,21 @@ export const deleteFollowUp = async (id) => {
     } catch (error) {
         console.error(
             "Delete followup error:",
+            error.response?.data || error.message,
+        );
+        throw error;
+    }
+};
+
+// GET FOLLOW-UP HISTORY (all records for an enquiry)
+export const getFollowUpHistory = async (enqNoOrId) => {
+    try {
+        const client = await createApiClient();
+        const response = await client.get(`/followups/history/${enqNoOrId}`);
+        return response.data;
+    } catch (error) {
+        console.error(
+            "Get follow-up history error:",
             error.response?.data || error.message,
         );
         throw error;

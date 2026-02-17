@@ -1,5 +1,5 @@
-import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import axios from "axios";
 import { API_URL } from "./apiConfig";
 
 // Create axios instance with auth token
@@ -36,11 +36,15 @@ export const createEnquiry = async (enquiryData) => {
 };
 
 // GET ALL ENQUIRIES
-export const getAllEnquiries = async () => {
+export const getAllEnquiries = async (page = 1, limit = 20, search = "", status = "") => {
     try {
         const client = await createApiClient();
-        const response = await client.get("/enquiries");
-        return response.data;
+        const params = { page, limit };
+        if (search) params.search = search;
+        if (status) params.status = status;
+
+        const response = await client.get("/enquiries", { params });
+        return response.data; // Now returns { data: [], pagination: {} } or [] if legacy
     } catch (error) {
         console.error(
             "Get enquiries error:",

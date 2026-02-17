@@ -12,6 +12,7 @@ const enquirySchema = new mongoose.Schema({
     mobile: { type: String, required: true },
     altMobile: String,
     address: String,
+    image: String, // Store image path or base64 string
 
     // Product Details
     product: { type: String, required: true },
@@ -19,14 +20,23 @@ const enquirySchema = new mongoose.Schema({
     color: String,
     cost: { type: Number, required: true }, // This maps to "Lead Value"
     paymentMethod: String,
+    conversionDate: Date, // Track when it became a sale
+    refundDate: Date,    // Track if sale was revoked
 
     status: {
         type: String,
-        enum: ["New", "In Progress", "Converted", "Closed"],
+        enum: ["New", "In Progress", "Converted", "Closed", "Dropped"],
         default: "New",
     },
 
     createdAt: { type: Date, default: Date.now },
-});
+}, { timestamps: true });
+
+// Indexes for performance
+// enquirySchema.index({ enqNo: 1 }); // Removed as unique:true handles this
+enquirySchema.index({ date: -1 });
+enquirySchema.index({ name: 'text', mobile: 'text' }); // Text index for search
+enquirySchema.index({ status: 1 });
+enquirySchema.index({ createdAt: -1 });
 
 module.exports = mongoose.model("Enquiry", enquirySchema);
